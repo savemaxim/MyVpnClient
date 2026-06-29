@@ -1,0 +1,277 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package
+    Name="MyVpnClient"
+    Manufacturer="MyVpnClient"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="6F053E5B-76AA-48A9-A115-1A8E705985F8"
+    Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of MyVpnClient is already installed." Schedule="afterInstallExecute" />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="AppIcon" SourceFile="MyVpnClient\AppIcon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    <Property Id="REMOVE_MYVPN_CONFIG" Value="0" />
+    <SetProperty Id="MYVPNCLIENT_PROGRAMDATA" Value="[ProgramDataMyVpnClient]" Before="CostFinalize" Sequence="both" />
+    <util:CloseApplication
+      Id="CloseMyVpnClient"
+      Target="MyVpnClient.exe"
+      CloseMessage="yes"
+      ElevatedCloseMessage="yes"
+      RebootPrompt="no" />
+    <util:CloseApplication
+      Id="CloseMyVpnTunnel"
+      Target="MyVpnTunnel.exe"
+      CloseMessage="yes"
+      ElevatedCloseMessage="yes"
+      RebootPrompt="no" />
+
+
+    <Feature Id="MainFeature" Title="MyVpnClient" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="MyVpnTunnelFiles" />
+      <ComponentGroupRef Id="OpenConnectFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="ProgramDataFolderPermissions" />
+      <ComponentRef Id="RemoveLegacyScriptUninstallEntry" />
+      <ComponentRef Id="RemoveProgramDataOnUninstall" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="MyVpnClient">
+        <Directory Id="BackendFolder" Name="backend">
+          <Directory Id="MyVpnTunnelFolder" Name="myvpn_tunnel" />
+        </Directory>
+        <Directory Id="OpenConnectFolder" Name="OpenConnect" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="MyVpnClient" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ProgramDataMyVpnClient" Name="MyVpnClient">
+        <Directory Id="ProgramDataState" Name="state" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExe">
+        <File Id="MyVpnClientExe" Source="MyVpnClient.exe" KeyPath="yes" />
+      </Component>
+      <Component>
+        <File Source="MyVpnClient.pdb" />
+      </Component>
+      <Component>
+        <File Source="README.md" />
+      </Component>
+      <Component>
+        <File Source="LICENSE" />
+      </Component>
+      <Component>
+        <File Source="THIRD_PARTY_NOTICES.md" />
+      </Component>
+      <Component>
+        <File Source="OPENCONNECT-LGPL-2.1.txt" />
+      </Component>
+      <Component>
+        <File Source="GITHUB_PUBLISH_CHECKLIST.md" />
+      </Component>
+      <Component>
+        <File Source="myvpnclient_bridge.py" />
+      </Component>
+      <Component>
+        <File Source="connect-admin.ps1" />
+      </Component>
+      <Component>
+        <File Source="install-helper-tasks-admin.ps1" />
+      </Component>
+      <Component>
+        <File Source="uninstall-helper-tasks-admin.ps1" />
+      </Component>
+      <Component>
+        <File Source="run-helper-task.ps1" />
+      </Component>
+      <Component>
+        <File Source="task-connect.ps1" />
+      </Component>
+      <Component>
+        <File Source="task-disconnect.ps1" />
+      </Component>
+      <Component>
+        <File Source="task-repair-network.ps1" />
+      </Component>
+      <Component>
+        <File Source="task-reset-network.ps1" />
+      </Component>
+      <Component>
+        <File Source="config.example.json" />
+      </Component>
+      <Component>
+        <File Source="profiles.example.json" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="MyVpnTunnelFiles" Directory="MyVpnTunnelFolder">
+      <Component>
+        <File Source="backend\myvpn_tunnel\__init__.py" />
+      </Component>
+      <Component>
+        <File Source="backend\myvpn_tunnel\fortinet.py" />
+      </Component>
+      <Component>
+        <File Source="backend\myvpn_tunnel\tunnel.py" />
+      </Component>
+      <Component>
+        <File Source="backend\myvpn_tunnel\ppp.py" />
+      </Component>
+      <Component>
+        <File Source="backend\myvpn_tunnel\tap.py" />
+      </Component>
+      <Component>
+        <File Source="backend\myvpn_tunnel\dtls.py" />
+      </Component>
+      <Component>
+        <File Source="backend\myvpn_tunnel\engine.py" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="OpenConnectFiles" Directory="OpenConnectFolder">
+      <Component>
+        <File Id="OpenConnectFile1" Source="OpenConnect\openconnect.exe" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile2" Source="OpenConnect\vpnc-script-win.js" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile3" Source="OpenConnect\list-system-keys.exe" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile4" Source="OpenConnect\wintun.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile5" Source="OpenConnect\iconv.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile6" Source="OpenConnect\libffi-8.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile7" Source="OpenConnect\libgcc_s_seh-1.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile8" Source="OpenConnect\libgmp-10.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile9" Source="OpenConnect\libgnutls-30.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile10" Source="OpenConnect\libhogweed-6.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile11" Source="OpenConnect\libintl-8.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile12" Source="OpenConnect\liblz4.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile13" Source="OpenConnect\libnettle-8.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile14" Source="OpenConnect\libopenconnect-5.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile15" Source="OpenConnect\libp11-kit-0.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile16" Source="OpenConnect\libstoken-1.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile17" Source="OpenConnect\libtasn1-6.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile18" Source="OpenConnect\libwinpthread-1.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile19" Source="OpenConnect\libxml2-2.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile20" Source="OpenConnect\zlib1.dll" />
+      </Component>
+      <Component>
+        <File Id="OpenConnectFile21" Source="OpenConnect\Online Documentation.url" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="ProgramDataFolderPermissions" Directory="ProgramDataState" Guid="9E4C779F-603E-4FEA-93D1-0927407EF95E">
+      <CreateFolder />
+      <RegistryValue Root="HKLM" Key="Software\MyVpnClient" Name="ProgramDataCreated" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="RemoveLegacyScriptUninstallEntry" Directory="INSTALLFOLDER" Guid="8E97BB41-70BF-4015-B3FA-D093BD1048E1">
+      <RemoveRegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\MyVpnClient" Action="removeOnInstall" />
+      <RegistryValue Root="HKLM" Key="Software\MyVpnClient" Name="LegacyUninstallCleanup" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="RemoveProgramDataOnUninstall" Directory="ProgramDataMyVpnClient" Guid="1C6779EC-325E-48AF-8A7B-E4AE3F97BF94" Condition="REMOVE_MYVPN_CONFIG = &quot;1&quot; AND REMOVE = &quot;ALL&quot;">
+      <util:RemoveFolderEx On="uninstall" Property="MYVPNCLIENT_PROGRAMDATA" />
+      <RegistryValue Root="HKLM" Key="Software\MyVpnClient" Name="RemoveConfigOnUninstall" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <UI>
+      <Dialog Id="RemoveConfigDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\\WixUI_Font_Title}Uninstall MyVpnClient" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="20" Transparent="yes" NoPrefix="yes" Text="Choose whether saved MyVpnClient data should also be removed." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Info" Type="Text" X="20" Y="70" Width="330" Height="45" Text="By default uninstall removes only the application. Saved profiles, password, logs, traces and diagnostics under ProgramData are kept." />
+        <Control Id="RemoveConfig" Type="CheckBox" X="20" Y="125" Width="330" Height="18" Property="REMOVE_MYVPN_CONFIG" CheckBoxValue="1" Text="Remove saved MyVpnClient configuration and logs" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="Back">
+          <Publish Event="NewDialog" Value="MaintenanceTypeDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="Next">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="RemoveConfigDlg" Order="1" Condition="REMOVE = &quot;ALL&quot;" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="RemoveConfigDlg" Order="1" Condition="1" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="RemoveConfigDlg" Order="1" Condition="REMOVE = &quot;ALL&quot;" />
+    </UI>
+
+    <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="D8F58478-0B40-4B4B-9BEA-1F79FD22990D">
+      <Shortcut
+        Id="ApplicationStartMenuShortcut"
+        Name="MyVpnClient"
+        Description="MyVpnClient"
+        Target="[INSTALLFOLDER]MyVpnClient.exe"
+        WorkingDirectory="INSTALLFOLDER"
+        Icon="AppIcon"
+        IconIndex="0" />
+      <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\MyVpnClient" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

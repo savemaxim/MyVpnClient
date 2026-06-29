@@ -1,0 +1,200 @@
+name: Release MSI
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 1.0.20"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}" -replace '^v', ''
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Version must look like 1.2.3, got '$version'."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "file_version=$version.0" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install packaging tools
+        shell: pwsh
+        run: |
+          choco install openconnect -y --no-progress
+          dotnet tool install --global wix --version 7.*
+          $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+          wix eula accept wix7
+          wix extension add --global WixToolset.UI.wixext/7.0.0
+          wix extension add --global WixToolset.Util.wixext/7.0.0
+
+      - name: Publish app
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $fileVersion = "${{ steps.version.outputs.file_version }}"
+          $publishDir = Join-Path $PWD "artifacts\publish\MyVpnClient"
+
+          dotnet publish .\src\MyVpnClient\MyVpnClient.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=$version `
+            -p:FileVersion=$fileVersion `
+            -p:AssemblyVersion=$fileVersion `
+            -p:InformationalVersion=$version `
+            -o $publishDir
+
+          dotnet publish .\src\MyVpnTunnel\MyVpnTunnel.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=$version `
+            -p:FileVersion=$fileVersion `
+            -p:AssemblyVersion=$fileVersion `
+            -p:InformationalVersion=$version `
+            -o $publishDir
+
+      - name: Stage MSI payload
+        shell: pwsh
+        run: |
+          $packageDir = Join-Path $PWD "artifacts\package"
+          $publishDir = Join-Path $PWD "artifacts\publish\MyVpnClient"
+
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item -Path (Join-Path $publishDir "*") -Destination $packageDir -Recurse -Force
+
+          Copy-Item .\README.md, .\LICENSE, .\THIRD_PARTY_NOTICES.md, .\OPENCONNECT-LGPL-2.1.txt, .\GITHUB_PUBLISH_CHECKLIST.md -Destination $packageDir -Force
+          Copy-Item .\myvpnclient_bridge.py, .\connect-admin.ps1, .\install-helper-tasks-admin.ps1, .\uninstall-helper-tasks-admin.ps1 -Destination $packageDir -Force
+          Copy-Item .\run-helper-task.ps1, .\task-connect.ps1, .\task-disconnect.ps1, .\task-repair-network.ps1, .\task-reset-network.ps1 -Destination $packageDir -Force
+          Copy-Item .\config.example.json, .\profiles.example.json -Destination $packageDir -Force
+          Copy-Item .\backend -Destination $packageDir -Recurse -Force
+
+          Copy-Item .\installer\MyVpnClient.wxs, .\installer\License.rtf -Destination $packageDir -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "MyVpnClient") | Out-Null
+          Copy-Item .\src\MyVpnClient\AppIcon.ico -Destination (Join-Path $packageDir "MyVpnClient\AppIcon.ico") -Force
+
+          $openConnectSourceCandidates = @(
+            "C:\Program Files\OpenConnect",
+            "C:\Program Files\MyVpnClient\OpenConnect",
+            "C:\Program Files (x86)\OpenConnect"
+          )
+          $openConnectSource = $openConnectSourceCandidates |
+            Where-Object { Test-Path (Join-Path $_ "openconnect.exe") } |
+            Select-Object -First 1
+          if (-not $openConnectSource) {
+            throw "OpenConnect runtime not found after Chocolatey install."
+          }
+
+          $openConnectPackageDir = Join-Path $packageDir "OpenConnect"
+          New-Item -ItemType Directory -Force -Path $openConnectPackageDir | Out-Null
+          $openConnectFiles = @(
+            "openconnect.exe",
+            "vpnc-script-win.js",
+            "list-system-keys.exe",
+            "wintun.dll",
+            "iconv.dll",
+            "libffi-8.dll",
+            "libgcc_s_seh-1.dll",
+            "libgmp-10.dll",
+            "libgnutls-30.dll",
+            "libhogweed-6.dll",
+            "libintl-8.dll",
+            "liblz4.dll",
+            "libnettle-8.dll",
+            "libopenconnect-5.dll",
+            "libp11-kit-0.dll",
+            "libstoken-1.dll",
+            "libtasn1-6.dll",
+            "libwinpthread-1.dll",
+            "libxml2-2.dll",
+            "zlib1.dll"
+          )
+          foreach ($file in $openConnectFiles) {
+            Copy-Item -LiteralPath (Join-Path $openConnectSource $file) -Destination $openConnectPackageDir -Force
+          }
+
+          $documentationShortcut = Join-Path $openConnectSource "Online Documentation.url"
+          if (Test-Path $documentationShortcut) {
+            Copy-Item -LiteralPath $documentationShortcut -Destination $openConnectPackageDir -Force
+          } else {
+            "[InternetShortcut]`nURL=https://www.infradead.org/openconnect/" | Set-Content -Encoding ascii (Join-Path $openConnectPackageDir "Online Documentation.url")
+          }
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $packageDir = Join-Path $PWD "artifacts\package"
+          $distDir = Join-Path $PWD "artifacts\dist"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+
+          Push-Location $packageDir
+          wix build .\MyVpnClient.wxs `
+            -acceptEula wix7 `
+            -arch x64 `
+            -ext WixToolset.UI.wixext `
+            -ext WixToolset.Util.wixext `
+            -d ProductVersion=$version `
+            -o (Join-Path $distDir "MyVpnClient-$version-win-x64.msi")
+          Pop-Location
+
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $msi = "artifacts\dist\MyVpnClient-$version-win-x64.msi"
+          $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $msi
+          "$($hash.Hash)  $(Split-Path -Leaf $msi)" | Set-Content -Encoding ascii "artifacts\dist\MyVpnClient-$version-win-x64.msi.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: MyVpnClient-${{ steps.version.outputs.version }}-win-x64
+          path: |
+            artifacts/dist/*.msi
+            artifacts/dist/*.sha256
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            MyVpnClient ${{ steps.version.outputs.version }} Windows x64 MSI release.
+
+            Full Changelog: https://github.com/${{ github.repository }}/commits/v${{ steps.version.outputs.version }}
+          files: |
+            artifacts/dist/*.msi
+            artifacts/dist/*.sha256
+
