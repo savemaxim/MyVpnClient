@@ -60,7 +60,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.131"
+MYVPNCLIENT_VERSION = "1.0.133"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",

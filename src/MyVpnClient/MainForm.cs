@@ -77,6 +77,7 @@ internal sealed class MainForm : Form
     private bool _fullDiagnosticRunning;
     private bool _connectLaunchInProgress;
     private bool _wasEverConnected;
+    private DateTimeOffset? _connectedSessionStartedAt;
     private bool _logFollowTail = true;
     private bool _sessionFollowTail = true;
     private bool _logPageActivated;
@@ -1632,6 +1633,7 @@ internal sealed class MainForm : Form
             snapshot.Detail,
             _profileBox.SelectedItem?.ToString(),
             _appSettings.ApiPort,
+            _appSettings.ApiBindAddress,
             snapshot.Phase,
             snapshot.UserMessage,
             snapshot.SuggestedAction,
@@ -1683,6 +1685,7 @@ internal sealed class MainForm : Form
             var connecting = snapshot.State == VpnConnectionState.Connecting;
             var failed = snapshot.Phase.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
                 || snapshot.Phase.Equals("AuthFailed", StringComparison.OrdinalIgnoreCase);
+            TrackSessionUptime(snapshot, connected);
             if (connected)
             {
                 _wasEverConnected = true;
@@ -1754,6 +1757,24 @@ internal sealed class MainForm : Form
             AppendLog(ex.Message);
             UpdateConnectionGauges(null);
         }
+    }
+
+    private void TrackSessionUptime(VpnStatusSnapshot snapshot, bool connected)
+    {
+        if (connected)
+        {
+            _connectedSessionStartedAt ??= snapshot.ConnectedAt ?? DateTimeOffset.Now;
+            return;
+        }
+
+        if (_connectedSessionStartedAt is not { } startedAt || snapshot.State != VpnConnectionState.Disconnected)
+        {
+            return;
+        }
+
+        var duration = DateTimeOffset.Now - startedAt;
+        AppendLog($"VPN session ended; connected uptime was {FormatConnectionDuration(duration)}.");
+        _connectedSessionStartedAt = null;
     }
 
     private static string ShortenStatusDetail(string detail)
@@ -2673,6 +2694,10 @@ internal sealed class MainForm : Form
         var latest = AppSettings.Load(_settingsPath);
         _appSettings.ApiEnabled = latest.ApiEnabled;
         _appSettings.ApiPort = latest.ApiPort;
+        _appSettings.ApiAllowExternalConnections = latest.ApiAllowExternalConnections
+            || string.Equals(latest.ApiBindAddress?.Trim(), "0.0.0.0", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(latest.ApiBindAddress?.Trim(), "*", StringComparison.OrdinalIgnoreCase);
+        _appSettings.ApiBindAddress = _appSettings.ApiAllowExternalConnections ? "0.0.0.0" : "127.0.0.1";
     }
 
     private void RestartApiServer()
@@ -2688,6 +2713,7 @@ internal sealed class MainForm : Form
         try
         {
             _apiServer = new ApiServer(
+                _appSettings.ApiBindAddress,
                 _appSettings.ApiPort,
                 GetApiStatusAsync,
                 () => _controller.HealthJsonAsync(),
@@ -2699,7 +2725,8 @@ internal sealed class MainForm : Form
                 DisconnectFromApiAsync,
                 ResetNetworkFromApiAsync);
             _apiServer.Start();
-            AppendLog($"Local API enabled at http://127.0.0.1:{_appSettings.ApiPort}/");
+            var apiScope = _appSettings.ApiAllowExternalConnections ? "external" : "local";
+            AppendLog($"{apiScope} API enabled at http://{_appSettings.ApiBindAddress}:{_appSettings.ApiPort}/");
         }
         catch (Exception ex)
         {

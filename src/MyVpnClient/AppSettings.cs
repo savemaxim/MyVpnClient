@@ -12,6 +12,8 @@ internal sealed class AppSettings
     public bool Maximized { get; set; }
     public bool ApiEnabled { get; set; } = false;
     public int ApiPort { get; set; } = 17873;
+    public bool ApiAllowExternalConnections { get; set; } = false;
+    public string ApiBindAddress { get; set; } = "127.0.0.1";
     public string LastRunVersion { get; set; } = "";
 
     public static AppSettings Load(string path)

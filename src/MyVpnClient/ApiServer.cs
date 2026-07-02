@@ -8,6 +8,7 @@ namespace MyVpnClient;
 
 internal sealed class ApiServer : IDisposable
 {
+    private readonly IPAddress _bindAddress;
     private readonly int _port;
     private readonly Func<Task<ApiStatus>> _getStatus;
     private readonly Func<Task<JsonNode>> _getHealth;
@@ -23,6 +24,7 @@ internal sealed class ApiServer : IDisposable
     private Task? _loopTask;
 
     public ApiServer(
+        string bindAddress,
         int port,
         Func<Task<ApiStatus>> getStatus,
         Func<Task<JsonNode>> getHealth,
@@ -34,6 +36,7 @@ internal sealed class ApiServer : IDisposable
         Func<Task<string>> disconnect,
         Func<Task<string>> resetNetwork)
     {
+        _bindAddress = ParseBindAddress(bindAddress);
         _port = port;
         _getStatus = getStatus;
         _getHealth = getHealth;
@@ -48,9 +51,26 @@ internal sealed class ApiServer : IDisposable
 
     public void Start()
     {
-        _listener = new TcpListener(IPAddress.Loopback, _port);
+        _listener = new TcpListener(_bindAddress, _port);
         _listener.Start();
         _loopTask = Task.Run(AcceptLoopAsync);
+    }
+
+    private static IPAddress ParseBindAddress(string? value)
+    {
+        var text = string.IsNullOrWhiteSpace(value) ? "127.0.0.1" : value.Trim();
+        if (text.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return IPAddress.Loopback;
+        }
+        if (text.Equals("*", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("any", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("all", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("0.0.0.0", StringComparison.OrdinalIgnoreCase))
+        {
+            return IPAddress.Any;
+        }
+        return IPAddress.TryParse(text, out var parsed) ? parsed : IPAddress.Loopback;
     }
 
     public void Dispose()
@@ -280,6 +300,7 @@ internal sealed record ApiStatus(
     string Detail,
     string? SelectedProfile,
     int Port,
+    string BindAddress,
     string Phase,
     string UserMessage,
     string SuggestedAction,

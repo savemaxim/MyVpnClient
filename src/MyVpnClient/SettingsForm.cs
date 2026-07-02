@@ -52,6 +52,7 @@ internal sealed class SettingsForm : Form
     private readonly NumericUpDown _keepTunnelAliveMaxBox = new FocusWheelNumericUpDown();
     private readonly CheckBox _apiEnabledBox = new();
     private readonly NumericUpDown _apiPortBox = new FocusWheelNumericUpDown();
+    private readonly CheckBox _apiAllowExternalConnectionsBox = new();
     private readonly TextBox _backendCapabilitiesBox = new();
     private readonly ToolTip _toolTip = new();
 
@@ -341,27 +342,36 @@ internal sealed class SettingsForm : Form
     private TabPage MakeAdvancedPage()
     {
         var page = new TabPage("Advanced");
-        var root = MakeSettingsGrid(4);
+        var root = MakeSettingsGrid(5);
 
         _sessionExpiryWarningMinutesBox.Minimum = 0;
         _sessionExpiryWarningMinutesBox.Maximum = 240;
         AddRow(root, 0, "Expiry warn min", _sessionExpiryWarningMinutesBox, "Minutes before reported VPN authentication expiry to write a log warning. Use 0 for only expired log entries.");
 
-        _logPathBox.PlaceholderText = @"C:\tmp\logs\myvpn\myvpn.log";
-        AddRow(root, 1, "Log path", _logPathBox, @"Optional full log file path or folder. Leave blank for ProgramData\MyVpnClient\state\myvpn.log.");
+        _logPathBox.PlaceholderText = DefaultLogPath();
+        AddRow(root, 1, "Log path", _logPathBox, "Full log file path or folder. The default path is shown here when no custom path is configured.");
 
-        _apiEnabledBox.Text = "Enable localhost control API";
+        _apiEnabledBox.Text = "Enable control API";
         _apiEnabledBox.AutoSize = true;
         AlignInputControl(_apiEnabledBox);
         var apiEnabledLabel = LabelFor("Local API");
         root.Controls.Add(apiEnabledLabel, 0, 2);
         root.Controls.Add(_apiEnabledBox, 1, 2);
-        SetTip(apiEnabledLabel, "Disabled by default. When enabled, MyVpnClient listens only on 127.0.0.1.");
-        SetTip(_apiEnabledBox, "Allows local tools to read status/profiles and request connect/disconnect through HTTP.");
+        SetTip(apiEnabledLabel, "Disabled by default. Bind to 127.0.0.1 for local-only access or 0.0.0.0 to allow trusted network access.");
+        SetTip(_apiEnabledBox, "Allows tools to read status/profiles and request connect/disconnect through HTTP.");
+
+        _apiAllowExternalConnectionsBox.Text = "Allow external connections";
+        _apiAllowExternalConnectionsBox.AutoSize = true;
+        AlignInputControl(_apiAllowExternalConnectionsBox);
+        var apiExternalLabel = LabelFor("External API");
+        root.Controls.Add(apiExternalLabel, 0, 3);
+        root.Controls.Add(_apiAllowExternalConnectionsBox, 1, 3);
+        SetTip(apiExternalLabel, "Unchecked means localhost-only. Checked listens on all interfaces, for external access. Only enable this on trusted networks.");
+        SetTip(_apiAllowExternalConnectionsBox, "Allows other trusted machines to call the MyVpnClient API through a trusted network.");
 
         _apiPortBox.Minimum = 1024;
         _apiPortBox.Maximum = 65535;
-        AddRow(root, 3, "API port", _apiPortBox, "Localhost port for the API. Endpoints: GET /status, GET /profiles, GET /health, GET /trace, POST /connect?profile=name, POST /disconnect.");
+        AddRow(root, 4, "API port", _apiPortBox, "Port for the API. Endpoints: GET /status, GET /profiles, GET /health, GET /trace, POST /connect?profile=name, POST /disconnect.");
         page.Controls.Add(root);
         return page;
     }
@@ -437,6 +447,9 @@ internal sealed class SettingsForm : Form
         PopulateProfileSelector(selectedIndex);
         PopulateProfileFields(_profiles[_selectedProfileIndex]);
         _apiEnabledBox.Checked = _appSettings.ApiEnabled;
+        _apiAllowExternalConnectionsBox.Checked = _appSettings.ApiAllowExternalConnections
+            || string.Equals(_appSettings.ApiBindAddress?.Trim(), "0.0.0.0", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(_appSettings.ApiBindAddress?.Trim(), "*", StringComparison.OrdinalIgnoreCase);
         _apiPortBox.Value = Math.Clamp(_appSettings.ApiPort <= 0 ? 17873 : _appSettings.ApiPort, 1024, 65535);
     }
 
@@ -593,7 +606,41 @@ internal sealed class SettingsForm : Form
         _tapMetricBox.Value = Math.Clamp(profile.TapInterfaceMetric <= 0 ? 1 : profile.TapInterfaceMetric, 1, 999);
         _networkFixWaitBox.Value = Math.Clamp(profile.NetworkFixWaitSeconds <= 0 ? 90 : profile.NetworkFixWaitSeconds, 5, 300);
         _sessionExpiryWarningMinutesBox.Value = Math.Clamp(profile.NotifySessionExpiryWarningMinutes < 0 ? 10 : profile.NotifySessionExpiryWarningMinutes, 0, 240);
-        _logPathBox.Text = profile.LogPath;
+        _logPathBox.Text = DisplayLogPath(profile.LogPath);
+    }
+
+    private string DisplayLogPath(string configuredLogPath)
+    {
+        var resolved = ResolveLogPath(configuredLogPath);
+        return string.IsNullOrWhiteSpace(resolved) ? DefaultLogPath() : resolved;
+    }
+
+    private string DefaultLogPath() => Path.Combine(_appDirectory, "state", "myvpn.log");
+
+    private string ResolveLogPath(string? configuredLogPath)
+    {
+        var configured = configuredLogPath?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return "";
+        }
+
+        var path = Environment.ExpandEnvironmentVariables(configured);
+        if (!Path.IsPathRooted(path))
+        {
+            path = Path.Combine(_appDirectory, path);
+        }
+        if (Directory.Exists(path) || string.IsNullOrWhiteSpace(Path.GetExtension(path)))
+        {
+            path = Path.Combine(path, "myvpn.log");
+        }
+        return path;
+    }
+
+    private string CustomLogPathFromField()
+    {
+        var text = _logPathBox.Text.Trim();
+        return string.Equals(text, DefaultLogPath(), StringComparison.OrdinalIgnoreCase) ? "" : text;
     }
 
     private void StoreCurrentProfileFields()
@@ -644,7 +691,7 @@ internal sealed class SettingsForm : Form
         profile.TapInterfaceMetric = (int)_tapMetricBox.Value;
         profile.NetworkFixWaitSeconds = (int)_networkFixWaitBox.Value;
         profile.NotifySessionExpiryWarningMinutes = (int)_sessionExpiryWarningMinutesBox.Value;
-        profile.LogPath = _logPathBox.Text.Trim();
+        profile.LogPath = CustomLogPathFromField();
         profile.Password = "";
         return profile;
     }
@@ -669,6 +716,8 @@ internal sealed class SettingsForm : Form
         SelectedProfileName = selected.Name;
 
         _appSettings.ApiEnabled = _apiEnabledBox.Checked;
+        _appSettings.ApiAllowExternalConnections = _apiAllowExternalConnectionsBox.Checked;
+        _appSettings.ApiBindAddress = _appSettings.ApiAllowExternalConnections ? "0.0.0.0" : "127.0.0.1";
         _appSettings.ApiPort = (int)_apiPortBox.Value;
         _appSettings.Save(_settingsPath);
         DialogResult = DialogResult.OK;
