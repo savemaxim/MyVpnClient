@@ -26,6 +26,7 @@ from myvpn_tunnel.ppp import (
 )
 from myvpnclient_bridge import (
     classify_myvpn_auth_failure,
+    log_connected_session_ended,
     openconnect_interface_alias,
     openconnect_interface_arg_alias,
     parse_openconnect_adapter_alias,
@@ -278,6 +279,39 @@ class StatusPayloadTests(unittest.TestCase):
             ):
                 payload = status_payload(config_path)
             self.assertEqual(payload["connectedAt"], "2026-06-26 20:39:59")
+
+    def test_backend_exit_logs_connected_session_uptime(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path = root / "myvpn_tunnel.json"
+            log_path = root / "myvpn.log"
+            trace_path = root / "trace.jsonl"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "network-ready",
+                        "note": "VPN tunnel is up.",
+                        "time": "2026-01-01 00:00:00",
+                        "connectedAt": "2026-01-01 00:00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.ACTIVE_LOG_FILE", log_path),
+                patch("myvpnclient_bridge.CURRENT_TRACE_FILE", trace_path),
+                patch("myvpnclient_bridge.RUN_TRACE_FILE", None),
+            ):
+                log_connected_session_ended("openconnect exit")
+
+            self.assertIn(
+                "VPN session ended after openconnect exit; connected uptime was ",
+                log_path.read_text(encoding="utf-8"),
+            )
+            self.assertIn('"event": "session_ended"', trace_path.read_text(encoding="utf-8"))
+
     def test_keepalive_reconnects_only_when_enabled_and_owner_running(self):
         config = {"keepTunnelAliveWhileAppRunning": True}
         with patch("myvpnclient_bridge.owner_is_gone", return_value=False):

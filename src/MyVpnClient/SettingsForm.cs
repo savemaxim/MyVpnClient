@@ -269,7 +269,8 @@ internal sealed class SettingsForm : Form
     private TabPage MakeTunnelPage()
     {
         var page = new TabPage("Tunnel");
-        var root = MakeSettingsGrid(13);
+        var root = MakeSettingsGrid(11);
+        root.RowStyles[10] = new RowStyle(SizeType.Absolute, 160);
 
         _useOpenconnectBackendBox.Text = "Use OpenConnect for tunnel transport";
         _useOpenconnectBackendBox.AutoSize = true;
@@ -319,26 +320,55 @@ internal sealed class SettingsForm : Form
         _terminateGraceBox.Maximum = 10;
         AddRow(root, 9, "Terminate grace", _terminateGraceBox, "Native tunnel only. Seconds to wait after sending PPP LCP terminate before closing the tunnel.");
 
-        _keepTunnelAliveBox.Text = "Keep tunnel alive while MyVpnClient is running";
+        _keepTunnelAliveBox.Text = "Reconnect if VPN drops";
         _keepTunnelAliveBox.AutoSize = true;
-        AlignInputControl(_keepTunnelAliveBox);
-        var keepAliveLabel = LabelFor("Persistent tunnel");
-        root.Controls.Add(keepAliveLabel, 0, 10);
-        root.Controls.Add(_keepTunnelAliveBox, 1, 10);
-        SetTip(keepAliveLabel, "Reconnects when the tunnel drops while MyVpnClient is still running. It stops reconnecting after user disconnect or when MyVpnClient exits.");
-        SetTip(_keepTunnelAliveBox, "FortiClient-like persistence, but still app-owned so killing MyVpnClient stops the VPN.");
-
         _keepTunnelAliveDelayBox.Minimum = 1;
         _keepTunnelAliveDelayBox.Maximum = 300;
-        AddRow(root, 11, "Reconnect delay", _keepTunnelAliveDelayBox, "Seconds to wait before reconnecting a dropped persistent tunnel.");
-
         _keepTunnelAliveMaxBox.Minimum = 0;
         _keepTunnelAliveMaxBox.Maximum = 999;
-        AddRow(root, 12, "Max reconnects", _keepTunnelAliveMaxBox, "Maximum reconnect attempts while MyVpnClient is running. Use 0 to keep trying.");
+        AddReconnectGroup(root, 10);
         page.Controls.Add(root);
         return page;
     }
 
+    private void AddReconnectGroup(TableLayoutPanel root, int row)
+    {
+        var group = new GroupBox
+        {
+            Text = "Reconnect when VPN drops",
+            Dock = DockStyle.Fill,
+            Padding = new Padding(14, 18, 14, 12),
+            Margin = new Padding(0, 8, 0, 4)
+        };
+        var grid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 3,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 142));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var groupRow = 0; groupRow < 3; groupRow++)
+        {
+            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        }
+
+        AlignInputControl(_keepTunnelAliveBox);
+        var reconnectLabel = LabelFor("Persistent tunnel");
+        grid.Controls.Add(reconnectLabel, 0, 0);
+        grid.Controls.Add(_keepTunnelAliveBox, 1, 0);
+        SetTip(reconnectLabel, "Reconnects when the tunnel drops while MyVpnClient is still running. It stops reconnecting after user disconnect or when MyVpnClient exits.");
+        SetTip(_keepTunnelAliveBox, "Reconnect after an unexpected VPN drop. Killing MyVpnClient still stops reconnecting.");
+
+        AddRow(grid, 1, "Delay sec", _keepTunnelAliveDelayBox, "Seconds to wait before reconnecting a dropped VPN tunnel.");
+        AddRow(grid, 2, "Max reconnects", _keepTunnelAliveMaxBox, "Maximum reconnect attempts while MyVpnClient is running. Use 0 to keep trying.");
+
+        group.Controls.Add(grid);
+        root.Controls.Add(group, 0, row);
+        root.SetColumnSpan(group, 2);
+    }
     private TabPage MakeAdvancedPage()
     {
         var page = new TabPage("Advanced");

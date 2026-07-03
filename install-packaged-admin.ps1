@@ -24,7 +24,7 @@ $startMenuDir = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Program
 $shortcutPath = Join-Path $startMenuDir 'MyVpnClient.lnk'
 $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MyVpnClient'
 $installUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$version = '1.0.133'
+$version = '1.0.136'
 
 function Copy-RequiredFile {
   param(

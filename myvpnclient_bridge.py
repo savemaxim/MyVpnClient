@@ -60,7 +60,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.133"
+MYVPNCLIENT_VERSION = "1.0.136"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -256,6 +256,46 @@ def readable_log_file() -> Path:
 
 def now_text() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes}m {secs}s"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def parse_state_timestamp(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def log_connected_session_ended(reason: str) -> None:
+    try:
+        state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if state.get("status") != "network-ready":
+        return
+    connected_at = parse_state_timestamp(str(state.get("connectedAt") or state.get("time") or ""))
+    if connected_at is None:
+        return
+    duration = datetime.now() - connected_at
+    append_log(f"VPN session ended after {reason}; connected uptime was {format_duration(duration.total_seconds())}.")
+    trace_event(
+        "session_ended",
+        reason=reason,
+        connectedAt=connected_at.strftime("%Y-%m-%d %H:%M:%S"),
+        uptimeSeconds=max(0, int(duration.total_seconds())),
+    )
 
 
 def trace_event(event: str, **fields) -> None:
@@ -2059,6 +2099,7 @@ def connect_myvpn_once(config: dict) -> int:
                     return openconnect_exit_code
             finally:
                 if openconnect_started:
+                    log_connected_session_ended("openconnect exit")
                     cleanup_windows_network_state(config, reason="openconnect exit")
                     PID_FILE.unlink(missing_ok=True)
                     with network_check_lock:
