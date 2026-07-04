@@ -60,7 +60,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.136"
+MYVPNCLIENT_VERSION = "1.0.137"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -278,21 +278,50 @@ def parse_state_timestamp(value: str) -> datetime | None:
         return None
 
 
+SESSION_END_CONNECTED_STATUSES = {"network-ready", "tunnel-lost", "tunnel-stalled", "ppp-terminating", "negotiation-timeout"}
+SESSION_END_PRESERVE_CONNECTED_AT_STATUSES = SESSION_END_CONNECTED_STATUSES - {"network-ready"}
+SESSION_END_CAUSES = {
+    "disconnect": "manual disconnect",
+    "disconnect with no active PID": "local cleanup: no active VPN PID",
+    "stale PID cleanup": "local cleanup: stale VPN PID",
+    "openconnect exit": "OpenConnect/backend tunnel lost",
+}
+
+
+def session_end_cause(reason: str) -> str:
+    return SESSION_END_CAUSES.get(reason, "other VPN session end")
+
+
 def log_connected_session_ended(reason: str) -> None:
     try:
         state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return
-    if state.get("status") != "network-ready":
+    status = str(state.get("status") or "")
+    if status not in SESSION_END_CONNECTED_STATUSES:
         return
-    connected_at = parse_state_timestamp(str(state.get("connectedAt") or state.get("time") or ""))
+    connected_at_text = str(state.get("connectedAt") or "")
+    if not connected_at_text and status == "network-ready":
+        connected_at_text = str(state.get("time") or "")
+    connected_at = parse_state_timestamp(connected_at_text)
     if connected_at is None:
         return
     duration = datetime.now() - connected_at
-    append_log(f"VPN session ended after {reason}; connected uptime was {format_duration(duration.total_seconds())}.")
+    cause = session_end_cause(reason)
+    note = str(state.get("note") or "").strip()
+    suffix = f" Last state: {status}."
+    if note:
+        suffix += f" Last note: {note}"
+    append_log(
+        f"VPN session ended; cause: {cause}; trigger: {reason}; "
+        f"connected uptime was {format_duration(duration.total_seconds())}.{suffix}"
+    )
     trace_event(
         "session_ended",
         reason=reason,
+        cause=cause,
+        lastStatus=status,
+        lastNote=note,
         connectedAt=connected_at.strftime("%Y-%m-%d %H:%M:%S"),
         uptimeSeconds=max(0, int(duration.total_seconds())),
     )
@@ -339,9 +368,11 @@ def write_myvpn_state(config: dict, status: str, note: str, **fields) -> None:
         previous = {}
     mfa_status = fields.pop("mfaStatus", previous.get("mfaStatus", ""))
     connected_at = fields.pop("connectedAt", previous.get("connectedAt", ""))
+    previous_status = str(previous.get("status") or "")
+    preserve_connected_at = previous_status == "network-ready" and status in SESSION_END_PRESERVE_CONNECTED_AT_STATUSES
     if status == "network-ready" and not connected_at:
         connected_at = now_text()
-    elif status != "network-ready":
+    elif status != "network-ready" and not preserve_connected_at:
         connected_at = ""
     payload = {
         "status": status,
@@ -2275,26 +2306,31 @@ def connect_interactive(config_path: Path) -> int:
 
 
 def disconnect(config_path: Path = DEFAULT_CONFIG) -> int:
-    MYVPN_STATE_FILE.unlink(missing_ok=True)
     try:
         config = load_config(config_path)
     except SystemExit:
         config = {}
     pid = read_pid()
     if not pid:
+        log_connected_session_ended("disconnect with no active PID")
         cleanup_windows_network_state(config, reason="disconnect with no active PID")
+        MYVPN_STATE_FILE.unlink(missing_ok=True)
         print("No PID file found; nothing to disconnect.")
         return 0
     if not is_running(pid):
         print(f"PID {pid} is not running; cleaning state.")
+        log_connected_session_ended("stale PID cleanup")
         cleanup_windows_network_state(config, reason="stale PID")
         PID_FILE.unlink(missing_ok=True)
+        MYVPN_STATE_FILE.unlink(missing_ok=True)
         return 0
 
     print(f"Stopping VPN PID {pid}...")
+    log_connected_session_ended("disconnect")
     terminate_process_tree(pid)
     cleanup_windows_network_state(config, reason="disconnect")
     PID_FILE.unlink(missing_ok=True)
+    MYVPN_STATE_FILE.unlink(missing_ok=True)
     return 0
 
 

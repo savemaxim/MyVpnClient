@@ -26,6 +26,7 @@ from myvpn_tunnel.ppp import (
 )
 from myvpnclient_bridge import (
     classify_myvpn_auth_failure,
+    disconnect,
     log_connected_session_ended,
     openconnect_interface_alias,
     openconnect_interface_arg_alias,
@@ -36,6 +37,7 @@ from myvpnclient_bridge import (
     route_tracking_interface_alias,
     should_reconnect_after_exit,
     status_payload,
+    write_myvpn_state,
 )
 from myvpn_tunnel.tap import vpn_peer_gateway
 
@@ -307,10 +309,125 @@ class StatusPayloadTests(unittest.TestCase):
                 log_connected_session_ended("openconnect exit")
 
             self.assertIn(
-                "VPN session ended after openconnect exit; connected uptime was ",
+                "VPN session ended; cause: OpenConnect/backend tunnel lost; trigger: openconnect exit; connected uptime was ",
                 log_path.read_text(encoding="utf-8"),
             )
             self.assertIn('"event": "session_ended"', trace_path.read_text(encoding="utf-8"))
+
+    def test_tunnel_lost_preserves_connected_at_for_backend_exit_uptime_log(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path = root / "myvpn_tunnel.json"
+            log_path = root / "myvpn.log"
+            trace_path = root / "trace.jsonl"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "network-ready",
+                        "note": "VPN tunnel is up.",
+                        "time": "2026-01-01 00:00:00",
+                        "connectedAt": "2026-01-01 00:00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.ACTIVE_LOG_FILE", log_path),
+                patch("myvpnclient_bridge.CURRENT_TRACE_FILE", trace_path),
+                patch("myvpnclient_bridge.RUN_TRACE_FILE", None),
+            ):
+                write_myvpn_state(
+                    {"server": "vpn.example"},
+                    "tunnel-lost",
+                    "OpenConnect backend exited after VPN network was ready, exit code 2.",
+                )
+                log_connected_session_ended("openconnect exit")
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["connectedAt"], "2026-01-01 00:00:00")
+            log_text = log_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "VPN session ended; cause: OpenConnect/backend tunnel lost; trigger: openconnect exit; connected uptime was ",
+                log_text,
+            )
+            self.assertIn("Last state: tunnel-lost.", log_text)
+            self.assertIn("OpenConnect backend exited after VPN network was ready, exit code 2.", log_text)
+            trace_text = trace_path.read_text(encoding="utf-8")
+            self.assertIn('"event": "session_ended"', trace_text)
+            self.assertIn('"cause": "OpenConnect/backend tunnel lost"', trace_text)
+
+    def test_disconnect_logs_connected_session_uptime_before_state_cleanup(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path = root / "myvpn_tunnel.json"
+            pid_path = root / "myvpn_tunnel.pid"
+            log_path = root / "myvpn.log"
+            trace_path = root / "trace.jsonl"
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps({"server": "vpn.example", "logPath": str(log_path)}), encoding="utf-8")
+            pid_path.write_text("12345", encoding="utf-8")
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "network-ready",
+                        "note": "VPN tunnel is up.",
+                        "time": "2026-01-01 00:00:00",
+                        "connectedAt": "2026-01-01 00:00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.PID_FILE", pid_path),
+                patch("myvpnclient_bridge.ACTIVE_LOG_FILE", log_path),
+                patch("myvpnclient_bridge.CURRENT_TRACE_FILE", trace_path),
+                patch("myvpnclient_bridge.RUN_TRACE_FILE", None),
+                patch("myvpnclient_bridge.is_running", return_value=True),
+                patch("myvpnclient_bridge.terminate_process_tree"),
+                patch("myvpnclient_bridge.cleanup_windows_network_state"),
+            ):
+                self.assertEqual(disconnect(config_path), 0)
+
+            self.assertFalse(state_path.exists())
+            self.assertIn(
+                "VPN session ended; cause: manual disconnect; trigger: disconnect; connected uptime was ",
+                log_path.read_text(encoding="utf-8"),
+            )
+            self.assertIn('"event": "session_ended"', trace_path.read_text(encoding="utf-8"))
+
+    def test_disconnect_logs_connected_session_uptime_for_stale_state(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path = root / "myvpn_tunnel.json"
+            pid_path = root / "myvpn_tunnel.pid"
+            log_path = root / "myvpn.log"
+            trace_path = root / "trace.jsonl"
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps({"server": "vpn.example", "logPath": str(log_path)}), encoding="utf-8")
+            state_path.write_text(
+                json.dumps({"status": "network-ready", "connectedAt": "2026-01-01 00:00:00"}),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.PID_FILE", pid_path),
+                patch("myvpnclient_bridge.ACTIVE_LOG_FILE", log_path),
+                patch("myvpnclient_bridge.CURRENT_TRACE_FILE", trace_path),
+                patch("myvpnclient_bridge.RUN_TRACE_FILE", None),
+                patch("myvpnclient_bridge.cleanup_windows_network_state"),
+            ):
+                self.assertEqual(disconnect(config_path), 0)
+
+            self.assertFalse(state_path.exists())
+            self.assertIn(
+                "VPN session ended; cause: local cleanup: no active VPN PID; trigger: disconnect with no active PID; connected uptime was ",
+                log_path.read_text(encoding="utf-8"),
+            )
 
     def test_keepalive_reconnects_only_when_enabled_and_owner_running(self):
         config = {"keepTunnelAliveWhileAppRunning": True}
