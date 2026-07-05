@@ -1031,11 +1031,28 @@ foreach ($address in $addresses) {{
             "network_check_retry" => $"- {time} Check retry: {StringProp(root, "error")}",
             "dns_packet" => FormatDnsPacket(time, root),
             "tunnel_exit" => $"- {time} Tunnel exited with code {StringProp(root, "exit_code")}",
+            "session_ended" => FormatSessionEnded(time, root),
             "persistent_connect_exit" => $"- {time} Helper finished with code {StringProp(root, "exit_code")}",
             _ => ""
         };
     }
 
+
+    private static string FormatSessionEnded(string time, JsonElement root)
+    {
+        var cause = StringProp(root, "cause");
+        var reason = StringProp(root, "reason");
+        var lastStatus = StringProp(root, "lastStatus");
+        var lastNote = StringProp(root, "lastNote");
+        var uptime = FormatTraceDuration(IntProp(root, "uptimeSeconds"));
+        var suffix = string.IsNullOrWhiteSpace(lastStatus) ? "" : $" Last state: {lastStatus}.";
+        if (!string.IsNullOrWhiteSpace(lastNote))
+        {
+            suffix += $" Last note: {lastNote}";
+        }
+
+        return $"- {time} VPN session ended; cause: {cause}; trigger: {reason}; connected uptime was {uptime}.{suffix}";
+    }
 
     private static string FormatLoginNote(string time, JsonElement root)
     {
@@ -1082,6 +1099,38 @@ foreach ($address in $addresses) {{
     private static string ShortTime(string? value)
     {
         return DateTime.TryParse(value, out var time) ? time.ToString("HH:mm:ss") : DateTime.Now.ToString("HH:mm:ss");
+    }
+
+    private static int IntProp(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var element))
+        {
+            return 0;
+        }
+
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var value))
+        {
+            return value;
+        }
+
+        return int.TryParse(element.ToString(), out var parsed) ? parsed : 0;
+    }
+
+    private static string FormatTraceDuration(int totalSeconds)
+    {
+        var seconds = Math.Max(0, totalSeconds);
+        var duration = TimeSpan.FromSeconds(seconds);
+        if (duration.TotalHours >= 1)
+        {
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s";
+        }
+
+        if (duration.TotalMinutes >= 1)
+        {
+            return $"{duration.Minutes}m {duration.Seconds}s";
+        }
+
+        return $"{duration.Seconds}s";
     }
 
     private static string StringProp(JsonElement root, string name)
