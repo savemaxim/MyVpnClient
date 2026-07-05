@@ -60,7 +60,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.138"
+MYVPNCLIENT_VERSION = "1.0.139"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -1754,6 +1754,8 @@ def run_openconnect_cookie_backend(
         append_log("openconnect option: --no-dtls enabled to match FortiClient DTLS preference off and avoid DTLS fallback delay.")
     if dpd_seconds > 0:
         append_log(f"openconnect option: --force-dpd={dpd_seconds} for tunnel keepalive/dead-peer detection.")
+    else:
+        append_log("openconnect option: --force-dpd disabled; OpenConnect/server defaults may still send PPP DPD echo requests.")
     if interface_arg_alias:
         append_log(f"openconnect option: --interface={interface_arg_alias}.")
     else:

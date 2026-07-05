@@ -754,6 +754,7 @@ internal sealed class MainForm : Form
         _logBox.HideSelection = false;
         _logBox.Font = new Font("Consolas", 9F);
         _logBox.BackColor = Color.FromArgb(252, 254, 255);
+        InstallSingleLineCopy(_logBox);
         _logBox.MouseWheel += (_, _) => BeginInvoke((Action)DetectLogScrollPosition);
         _logBox.MouseUp += (_, _) => BeginInvoke((Action)DetectLogScrollPosition);
         _logBox.KeyUp += (_, e) =>
@@ -1138,6 +1139,7 @@ internal sealed class MainForm : Form
         _traceBox.HideSelection = false;
         _traceBox.Font = new Font("Consolas", 9F);
         _traceBox.BackColor = Color.FromArgb(252, 254, 255);
+        InstallSingleLineCopy(_traceBox);
         _traceBox.MouseWheel += (_, _) => BeginInvoke((Action)DetectSessionScrollPosition);
         _traceBox.MouseUp += (_, _) => BeginInvoke((Action)DetectSessionScrollPosition);
         _traceBox.KeyUp += (_, e) =>
@@ -2007,6 +2009,52 @@ internal sealed class MainForm : Form
         _traceBox.SelectionLength = 0;
         _traceBox.ScrollToCaret();
         UpdateSessionFollowButton();
+    }
+
+    private static void InstallSingleLineCopy(TextBox textBox)
+    {
+        textBox.KeyDown += (_, e) =>
+        {
+            if (!e.Control || e.KeyCode != Keys.C || textBox.SelectionLength > 0)
+            {
+                return;
+            }
+
+            string line = CurrentTextBoxLine(textBox);
+            if (string.IsNullOrEmpty(line))
+            {
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(line);
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+            }
+            catch
+            {
+                // Clipboard can be temporarily locked by another process.
+            }
+        };
+    }
+
+    private static string CurrentTextBoxLine(TextBox textBox)
+    {
+        if (textBox.TextLength == 0)
+        {
+            return string.Empty;
+        }
+
+        int selectionStart = Math.Clamp(textBox.SelectionStart, 0, textBox.TextLength);
+        int lineIndex = textBox.GetLineFromCharIndex(selectionStart);
+        string[] lines = textBox.Lines;
+        if (lineIndex < 0 || lineIndex >= lines.Length)
+        {
+            return string.Empty;
+        }
+
+        return lines[lineIndex];
     }
 
     private static void RestoreTextSelection(TextBox textBox, int selectionStart, int selectionLength)

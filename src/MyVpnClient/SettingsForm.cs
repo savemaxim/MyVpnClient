@@ -285,7 +285,7 @@ internal sealed class SettingsForm : Form
 
         _openconnectDpdSecondsBox.Minimum = 0;
         _openconnectDpdSecondsBox.Maximum = 3600;
-        AddRow(root, 2, "OC DPD sec", _openconnectDpdSecondsBox, "OpenConnect dead-peer detection interval passed as --force-dpd. Default is 20 seconds. Use 0 to let OpenConnect/server defaults decide.");
+        AddRow(root, 2, "OC DPD sec", _openconnectDpdSecondsBox, "OpenConnect dead-peer detection interval passed as --force-dpd on the next connection. Default is 20 seconds. Use 0 to omit --force-dpd; OpenConnect/server defaults may still emit PPP DPD echo requests.");
 
         _openconnectReconnectTimeoutBox.Minimum = 0;
         _openconnectReconnectTimeoutBox.Maximum = 3600;
