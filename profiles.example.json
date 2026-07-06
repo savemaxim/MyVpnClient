@@ -7,7 +7,7 @@
     "preferDtls": false,
     "useOpenconnectBackend": true,
     "openconnectNoDtls": true,
-    "openconnectDpdSeconds": 20,
+    "openconnectDpdSeconds": 300,
     "openconnectReconnectTimeoutSeconds": 60,
     "openconnectInterfaceAlias": "MyVpnClient",
     "openconnectForceInterfaceAlias": false,

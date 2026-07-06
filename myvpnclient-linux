@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  SOURCE_DIR="$(cd -- "$(dirname -- "$SOURCE")" && pwd)"
+  TARGET="$(readlink "$SOURCE")"
+  if [[ "$TARGET" == /* ]]; then
+    SOURCE="$TARGET"
+  else
+    SOURCE="$SOURCE_DIR/$TARGET"
+  fi
+done
+APP_DIR="$(cd -- "$(dirname -- "$SOURCE")" && pwd)"
+DATA_DIR="${MYVPNCLIENT_DATA_DIR:-${XDG_CONFIG_HOME:-"$HOME/.config"}/myvpnclient}"
+CONFIG_PATH="$DATA_DIR/config.json"
+
+mkdir -p "$DATA_DIR"
+
+if [[ ! -f "$CONFIG_PATH" && -f "$APP_DIR/config.linux.example.json" ]]; then
+  cp "$APP_DIR/config.linux.example.json" "$CONFIG_PATH"
+  chmod 600 "$CONFIG_PATH"
+  echo "Created $CONFIG_PATH. Edit it before connecting." >&2
+elif [[ ! -f "$CONFIG_PATH" && -f "$APP_DIR/config.example.json" ]]; then
+  cp "$APP_DIR/config.example.json" "$CONFIG_PATH"
+  chmod 600 "$CONFIG_PATH"
+  echo "Created $CONFIG_PATH. Edit it before connecting." >&2
+fi
+
+export MYVPNCLIENT_DATA_DIR="$DATA_DIR"
+exec python3 -B "$APP_DIR/myvpnclient_bridge.py" --config "$CONFIG_PATH" "$@"
