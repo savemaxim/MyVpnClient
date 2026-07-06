@@ -173,7 +173,7 @@ chmod +x /tmp/install-myvpnclient.sh
 To install a specific version:
 
 ```bash
-/tmp/install-myvpnclient.sh --from-release 1.0.141
+/tmp/install-myvpnclient.sh --from-release 1.0.142
 ```
 
 The release installer downloads `MyVpnClient-<version>-linux-x64.zip`, copies it to `/opt/myvpnclient`, and installs `/usr/local/bin/myvpnclient`.

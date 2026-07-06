@@ -2,6 +2,13 @@ param([switch]$NoPause)
 
 $ErrorActionPreference = "Stop"
 
+function Convert-PackageScriptToLf {
+    param([Parameter(Mandatory=$true)] [string] $Path)
+    $text = [System.IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    [System.IO.File]::WriteAllText($Path, $text, [System.Text.UTF8Encoding]::new($false))
+}
+
+
 $root = $PSScriptRoot
 $csproj = Join-Path $root "src\MyVpnClient\MyVpnClient.csproj"
 [xml]$_xml = Get-Content $csproj
@@ -22,6 +29,8 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Write-Host "`n[1/2] Staging Linux CLI package..." -ForegroundColor Yellow
 Copy-Item "$root\backend" -Destination $publishDir -Recurse -Force
 Copy-Item "$root\myvpnclient_bridge.py", "$root\config.example.json", "$root\config.linux.example.json", "$root\myvpnclient-linux", "$root\install-linux.sh" -Destination $publishDir -Force
+Convert-PackageScriptToLf (Join-Path $publishDir "myvpnclient-linux")
+Convert-PackageScriptToLf (Join-Path $publishDir "install-linux.sh")
 Copy-Item "$root\README.md", "$root\LICENSE", "$root\THIRD_PARTY_NOTICES.md" -Destination $publishDir -Force
 
 Write-Host "`n[2/2] Creating zip and checksum..." -ForegroundColor Yellow

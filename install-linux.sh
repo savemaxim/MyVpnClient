@@ -111,6 +111,7 @@ install_from_dir() {
   "${sudo_cmd[@]}" cp "$APP_DIR/config.example.json" "$INSTALL_DIR/"
   "${sudo_cmd[@]}" cp "$APP_DIR/config.linux.example.json" "$INSTALL_DIR/"
   "${sudo_cmd[@]}" cp "$APP_DIR/myvpnclient-linux" "$INSTALL_DIR/"
+  "${sudo_cmd[@]}" sed -i 's/\r$//' "$INSTALL_DIR/myvpnclient-linux"
   "${sudo_cmd[@]}" chmod 755 "$INSTALL_DIR/myvpnclient-linux"
 
   "${sudo_cmd[@]}" ln -sf "$INSTALL_DIR/myvpnclient-linux" "$BIN_PATH"

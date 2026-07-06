@@ -3,10 +3,10 @@
   <PropertyGroup>
     <AssemblyName>MyVpnClient</AssemblyName>
     <RootNamespace>MyVpnClient</RootNamespace>
-    <Version>1.0.141</Version>
-    <FileVersion>1.0.141.0</FileVersion>
-    <AssemblyVersion>1.0.141.0</AssemblyVersion>
-    <InformationalVersion>1.0.141</InformationalVersion>
+    <Version>1.0.142</Version>
+    <FileVersion>1.0.142.0</FileVersion>
+    <AssemblyVersion>1.0.142.0</AssemblyVersion>
+    <InformationalVersion>1.0.142</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
