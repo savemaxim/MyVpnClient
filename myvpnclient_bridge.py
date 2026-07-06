@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timedelta
 import ctypes
 from ctypes import wintypes
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import json
 import os
@@ -19,6 +20,7 @@ import sys
 import threading
 import time
 import traceback
+from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -40,6 +42,7 @@ from myvpn_tunnel.engine import (
 
 DATA_DIR = Path(os.environ.get("MYVPNCLIENT_DATA_DIR") or APP_DIR)
 DEFAULT_CONFIG = DATA_DIR / "config.json"
+PROFILES_FILE = DATA_DIR / "profiles.json"
 STATE_DIR = DATA_DIR / "state"
 PID_FILE = STATE_DIR / "openconnect.pid"
 OWNER_PID_FILE = STATE_DIR / "myvpnclient-owner.pid"
@@ -60,7 +63,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.139"
+MYVPNCLIENT_VERSION = "1.0.140"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -1427,6 +1430,30 @@ def state_metadata(state: str, detail: str = "") -> dict:
 
 
 def connect(config_path: Path, *, wait: bool = False) -> int:
+    if not wait:
+        if read_pid() and is_running(read_pid() or 0):
+            print("VPN tunnel process is already active.")
+            return 0
+        STATE_DIR.mkdir(exist_ok=True)
+        log_file = configured_log_path(load_config(config_path))
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        command = [sys.executable, "-B", str(Path(__file__).resolve()), "--config", str(config_path), "connect-watch"]
+        try:
+            with log_file.open("ab") as log_handle:
+                proc = subprocess.Popen(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    creationflags=CREATE_NO_WINDOW,
+                )
+        except OSError as exc:
+            print(f"Unable to start background VPN connect: {exc}", file=sys.stderr)
+            return 1
+        print(f"VPN connect started in background PID {proc.pid}.")
+        print("Use 'myvpnclient status' or 'myvpnclient logs --lines 80' to follow progress.")
+        return 0
     config = load_config(config_path)
     return connect_myvpn(config)
 
@@ -1543,6 +1570,15 @@ def openconnect_vpnc_script(config: dict) -> str:
     configured = str(config.get("openconnectScript") or "").strip()
     if configured:
         return configured
+    if os.name != "nt":
+        for candidate in (
+            "/etc/vpnc/vpnc-script",
+            "/usr/share/vpnc-scripts/vpnc-script",
+            "/usr/share/openconnect/vpnc-script",
+        ):
+            if Path(candidate).exists():
+                return candidate
+        return "vpnc-script"
     bundled = APP_DIR / "OpenConnect" / "vpnc-script-win.js"
     if bundled.exists():
         return str(bundled)
@@ -1676,11 +1712,44 @@ def _select_adapter_ipv4(rows: list[tuple[str, str]], expected_ip: str = "") -> 
     for adapter_alias, ip in rows:
         if ip.startswith("10."):
             return adapter_alias, ip
+    for adapter_alias, ip in rows:
+        if adapter_alias.startswith("tun") and not ip.startswith("127."):
+            return adapter_alias, ip
+    for adapter_alias, ip in rows:
+        if not ip.startswith("127."):
+            return adapter_alias, ip
     return rows[0] if rows else ("", "")
+
+
+def linux_adapter_ip_rows(alias: str = "") -> list[tuple[str, str]]:
+    command = ["ip", "-o", "-4", "addr", "show"]
+    if alias:
+        command.append(alias)
+    code, output = run_text(command, timeout=4)
+    if code != 0:
+        return []
+    rows: list[tuple[str, str]] = []
+    for line in output.splitlines():
+        match = re.search(r"^\d+:\s+([^:\s]+).*?\sinet\s+([0-9.]+)/\d+", line)
+        if match:
+            rows.append((match.group(1), match.group(2)))
+    return rows
 
 
 def read_adapter_ipv4_with_alias(alias: str, expected_ip: str = "") -> tuple[str, str]:
     if os.name != "nt":
+        rows = linux_adapter_ip_rows(alias) if alias else linux_adapter_ip_rows()
+        if expected_ip:
+            for adapter_alias, ip in rows:
+                if ip == expected_ip:
+                    return adapter_alias, ip
+            return "", ""
+        for adapter_alias, ip in rows:
+            if adapter_alias.startswith("tun") and not ip.startswith("127."):
+                return adapter_alias, ip
+        for adapter_alias, ip in rows:
+            if ip.startswith("10."):
+                return adapter_alias, ip
         return "", ""
     if alias:
         alias_literal = alias.replace("'", "''")
@@ -1737,7 +1806,7 @@ def run_openconnect_cookie_backend(
     no_dtls = config_bool(config, "openconnectNoDtls", True)
     if no_dtls:
         cmd.append("--no-dtls")
-    dpd_seconds = config_int(config, "openconnectDpdSeconds", 20)
+    dpd_seconds = config_int(config, "openconnectDpdSeconds", 0)
     if dpd_seconds > 0:
         cmd.append(f"--force-dpd={dpd_seconds}")
     reconnect_timeout = config_int(config, "openconnectReconnectTimeoutSeconds", 60)
@@ -1844,6 +1913,8 @@ def run_openconnect_cookie_backend(
         trace_event("openconnect_start_failed", error=str(exc))
         return None
 
+    PID_FILE.write_text(str(proc.pid), encoding="utf-8")
+    trace_event("openconnect_pid", pid=proc.pid)
     start_owner_watch_thread(proc, config)
 
     configured_ip = ""
@@ -2366,9 +2437,19 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
             return 0
         try:
             state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
+            connected_at = parse_state_timestamp(str(state.get("connectedAt") or ""))
+            uptime = f" uptime {format_duration((datetime.now() - connected_at).total_seconds())}" if connected_at else ""
+            server = str(state.get("server") or config.get("server") or "").strip()
+            ipv4 = str(state.get("ipv4") or "").strip()
+            details = []
+            if server:
+                details.append(f"server {server}")
+            if ipv4:
+                details.append(f"vpn ip {ipv4}")
+            detail_text = f" ({', '.join(details)})" if details else ""
             print(
                 "myvpn_tunnel "
-                f"{state.get('status', 'running')} PID {pid}: {state.get('note', '')}"
+                f"{state.get('status', 'running')} PID {pid}{uptime}{detail_text}: {state.get('note', '')}"
             )
             return 0
         except (OSError, json.JSONDecodeError):
@@ -2379,9 +2460,21 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
             state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
             state_name = state.get("status", "stopped")
             note = state.get("note", "")
-            print(f"myvpn_tunnel {state_name}: {note}")
+            connected_at = parse_state_timestamp(str(state.get("connectedAt") or ""))
+            uptime = f" uptime {format_duration((datetime.now() - connected_at).total_seconds())}" if connected_at else ""
+            server = str(state.get("server") or config.get("server") or "").strip()
+            ipv4 = str(state.get("ipv4") or "").strip()
+            details = []
+            if server:
+                details.append(f"server {server}")
+            if ipv4:
+                details.append(f"vpn ip {ipv4}")
+            detail_text = f" ({', '.join(details)})" if details else ""
+            print(f"myvpn_tunnel {state_name}{uptime}{detail_text}: {note}")
             if state_name in {"auth-failed", "auth-timeout", "tunnel-open-failed"}:
                 return 1
+            if state_name == "network-ready":
+                return 0
         except (OSError, json.JSONDecodeError):
             pass
     if pid:
@@ -2471,7 +2564,7 @@ def status_json(config_path: Path = DEFAULT_CONFIG) -> int:
     return 0 if payload.get("pidRunning") or payload.get("connected") else 1
 
 
-def logs(lines: int) -> int:
+def logs(lines: int = 100, *, follow: bool = True) -> int:
     log_file = readable_log_file()
     if not log_file.exists():
         print(f"No log file yet: {LOG_FILE}")
@@ -2479,6 +2572,20 @@ def logs(lines: int) -> int:
     content = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
     for line in content[-lines:]:
         print(line)
+    if not follow:
+        return 0
+    print("-- following log; press Ctrl+C to stop --", flush=True)
+    try:
+        with log_file.open("r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(0, os.SEEK_END)
+            while True:
+                line = handle.readline()
+                if line:
+                    print(line, end="", flush=True)
+                else:
+                    time.sleep(0.5)
+    except KeyboardInterrupt:
+        print()
     return 0
 
 
@@ -3007,6 +3114,238 @@ def health_json(config_path: Path = DEFAULT_CONFIG) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def profile_display_name(profile: dict) -> str:
+    name = str(profile.get("name") or "").strip()
+    server = str(profile.get("server") or "").strip()
+    return name or server or "VPN profile"
+
+
+def load_profiles(config_path: Path = DEFAULT_CONFIG, profiles_path: Path = PROFILES_FILE) -> list[dict]:
+    profiles: list[dict] = []
+    if profiles_path.exists():
+        try:
+            raw = json.loads(profiles_path.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                profiles = [normalize_config_keys(item) for item in raw if isinstance(item, dict)]
+        except (OSError, json.JSONDecodeError):
+            profiles = []
+
+    if not profiles and config_path.exists():
+        try:
+            profiles = [load_config(config_path)]
+        except SystemExit:
+            profiles = []
+
+    for profile in profiles:
+        if not str(profile.get("name") or "").strip():
+            profile["name"] = profile_display_name(profile)
+    return profiles
+
+
+def active_profile_name(config_path: Path = DEFAULT_CONFIG) -> str:
+    try:
+        config = load_config(config_path)
+    except SystemExit:
+        return ""
+    return profile_display_name(config)
+
+
+def profile_matches_active(profile: dict, active: dict) -> bool:
+    profile_name = profile_display_name(profile)
+    active_name = profile_display_name(active)
+    if profile_name and active_name and profile_name.lower() == active_name.lower():
+        return True
+    return bool(profile.get("server")) and str(profile.get("server")).lower() == str(active.get("server") or "").lower()
+
+
+def api_profiles_payload(config_path: Path = DEFAULT_CONFIG) -> dict:
+    profiles = load_profiles(config_path)
+    try:
+        active = load_config(config_path)
+    except SystemExit:
+        active = {}
+    result = []
+    for profile in profiles:
+        result.append(
+            {
+                "name": profile_display_name(profile),
+                "server": str(profile.get("server") or ""),
+                "protocol": str(profile.get("protocol") or "fortinet"),
+                "backend": backend_name(profile),
+                "selected": profile_matches_active(profile, active) if active else False,
+            }
+        )
+    return {"profiles": result}
+
+
+def select_profile_config(profile_name: str | None, config_path: Path = DEFAULT_CONFIG) -> None:
+    if not profile_name or not profile_name.strip():
+        return
+    requested = profile_name.strip().lower()
+    for profile in load_profiles(config_path):
+        if profile_display_name(profile).lower() == requested:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+            configure_log_path(profile)
+            return
+    raise ValueError(f"Profile not found: {profile_name}")
+
+
+def api_status_payload(config_path: Path, port: int, bind_address: str) -> dict:
+    payload = status_payload(config_path)
+    payload.update(
+        {
+            "apiEnabled": True,
+            "selectedProfile": active_profile_name(config_path),
+            "port": port,
+            "bindAddress": bind_address,
+        }
+    )
+    return payload
+
+
+def api_trace_payload() -> dict:
+    try:
+        route_owner = json.loads(MYVPN_ROUTES_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        route_owner = None
+    return {
+        "tracePath": str(CURRENT_TRACE_FILE),
+        "routeOwnerPath": str(MYVPN_ROUTES_FILE),
+        "routeOwner": route_owner,
+        "events": trace_tail(limit=200),
+    }
+
+
+def start_api_connect(profile_name: str | None, config_path: Path) -> str:
+    select_profile_config(profile_name, config_path)
+    if read_pid() and is_running(read_pid() or 0):
+        return "Connect requested; tunnel process is already active."
+
+    def run_connect() -> None:
+        try:
+            exit_code = connect(config_path)
+            trace_event("api_connect_exit", exitCode=exit_code)
+        except Exception as exc:
+            append_log("API connect failed:\n" + traceback.format_exc())
+            trace_event("api_connect_failed", error=str(exc))
+
+    thread = threading.Thread(target=run_connect, name="myvpn-api-connect", daemon=True)
+    thread.start()
+    return "Connect requested."
+
+
+def normalize_api_bind_address(bind_address: str) -> str:
+    value = (bind_address or "127.0.0.1").strip()
+    if value.lower() in {"*", "any", "all"}:
+        return "0.0.0.0"
+    return value or "127.0.0.1"
+
+
+def serve_api(config_path: Path = DEFAULT_CONFIG, bind_address: str = "127.0.0.1", port: int = 17873) -> int:
+    bind_address = normalize_api_bind_address(bind_address)
+
+    class ApiHandler(BaseHTTPRequestHandler):
+        server_version = "MyVpnClientApi/1.0"
+
+        def log_message(self, _format: str, *_args) -> None:
+            return
+
+        def write_json(self, status_code: int, payload: dict) -> None:
+            body = json.dumps(payload, indent=2).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def read_json_body(self) -> dict:
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                length = 0
+            if length <= 0:
+                return {}
+            try:
+                raw = self.rfile.read(length).decode("utf-8")
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, dict) else {}
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                return {}
+
+        def do_GET(self) -> None:
+            path = urlparse(self.path).path.lower()
+            try:
+                if path == "/status":
+                    self.write_json(200, api_status_payload(config_path, port, bind_address))
+                elif path == "/profiles":
+                    self.write_json(200, api_profiles_payload(config_path))
+                elif path == "/health":
+                    self.write_json(200, health_payload(config_path))
+                elif path == "/trace":
+                    self.write_json(200, api_trace_payload())
+                elif path == "/preflight":
+                    self.write_json(200, preflight_payload(config_path))
+                elif path == "/sandbox-check":
+                    self.write_json(200, sandbox_check_payload(config_path))
+                else:
+                    self.write_not_found()
+            except Exception as exc:
+                self.write_json(500, {"error": str(exc)})
+
+        def do_POST(self) -> None:
+            parsed = urlparse(self.path)
+            path = parsed.path.lower()
+            try:
+                if path == "/connect":
+                    query = parse_qs(parsed.query)
+                    body = self.read_json_body()
+                    profile = (query.get("profile") or [None])[0] or body.get("profile")
+                    self.write_json(202, {"message": start_api_connect(profile, config_path)})
+                elif path == "/disconnect":
+                    disconnect(config_path)
+                    self.write_json(202, {"message": "Disconnect requested."})
+                elif path == "/reset-network":
+                    reset_network(config_path)
+                    self.write_json(202, {"message": "Reset network requested."})
+                else:
+                    self.write_not_found()
+            except Exception as exc:
+                self.write_json(500, {"error": str(exc)})
+
+        def write_not_found(self) -> None:
+            self.write_json(
+                404,
+                {
+                    "error": "Not found",
+                    "endpoints": [
+                        "GET /status",
+                        "GET /profiles",
+                        "GET /health",
+                        "GET /trace",
+                        "GET /preflight",
+                        "GET /sandbox-check",
+                        "POST /connect?profile=name",
+                        "POST /disconnect",
+                        "POST /reset-network",
+                    ],
+                },
+            )
+
+    httpd = ThreadingHTTPServer((bind_address, port), ApiHandler)
+    append_log(f"API enabled at http://{bind_address}:{port}/")
+    print(f"MyVpnClient API listening at http://{bind_address}:{port}/")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        httpd.server_close()
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="MyVpnClient integrated VPN bridge")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Path to config JSON")
@@ -3025,8 +3364,12 @@ def main(argv: list[str]) -> int:
     sub.add_parser("full-diagnostic")
     sub.add_parser("self-test")
     sub.add_parser("fix-network")
+    api_parser = sub.add_parser("serve-api")
+    api_parser.add_argument("--bind", default="127.0.0.1", help="API bind address")
+    api_parser.add_argument("--port", type=int, default=17873, help="API port")
     logs_parser = sub.add_parser("logs")
-    logs_parser.add_argument("--lines", type=int, default=80)
+    logs_parser.add_argument("--lines", type=int, default=100)
+    logs_parser.add_argument("--no-follow", action="store_true", help="Print the selected log tail and exit")
     args = parser.parse_args(argv)
 
     if args.command == "connect":
@@ -3055,8 +3398,10 @@ def main(argv: list[str]) -> int:
         return self_test(args.config)
     if args.command == "fix-network":
         return apply_windows_network_fix(load_config(args.config), wait_for_ip=False)
+    if args.command == "serve-api":
+        return serve_api(args.config, args.bind, args.port)
     if args.command == "logs":
-        return logs(args.lines)
+        return logs(args.lines, follow=not args.no_follow)
     return 2
 
 

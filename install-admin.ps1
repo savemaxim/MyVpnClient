@@ -236,7 +236,7 @@ Copy-Item -LiteralPath (Join-Path $sourceDir 'uninstall-admin.ps1') -Destination
 Write-Host 'Creating Windows uninstall entry...'
 New-Item -Path $uninstallKey -Force | Out-Null
 New-ItemProperty -Path $uninstallKey -Name 'DisplayName' -Value 'MyVpnClient' -PropertyType String -Force | Out-Null
-New-ItemProperty -Path $uninstallKey -Name 'DisplayVersion' -Value '1.0.139' -PropertyType String -Force | Out-Null
+New-ItemProperty -Path $uninstallKey -Name 'DisplayVersion' -Value '1.0.140' -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $uninstallKey -Name 'Publisher' -Value 'MyVpnClient' -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $uninstallKey -Name 'InstallLocation' -Value $installDir -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $uninstallKey -Name 'UninstallString' -Value "powershell.exe -ExecutionPolicy Bypass -File `"$installDir\uninstall-admin.ps1`"" -PropertyType String -Force | Out-Null
@@ -245,15 +245,14 @@ New-ItemProperty -Path $uninstallKey -Name 'NoModify' -Value 1 -PropertyType DWo
 New-ItemProperty -Path $uninstallKey -Name 'NoRepair' -Value 1 -PropertyType DWord -Force | Out-Null
 
 $installedVersion = (Get-Item -LiteralPath (Join-Path $installDir 'MyVpnClient.exe')).VersionInfo.ProductVersion
-if ($installedVersion -ne '1.0.139') {
-  throw "Installed MyVpnClient.exe version verification failed: expected 1.0.139, got $installedVersion"
+if ($installedVersion -ne '1.0.140') {
+  throw "Installed MyVpnClient.exe version verification failed: expected 1.0.140, got $installedVersion"
 }
 
 Write-Host ''
 Write-Host "MyVpnClient $installedVersion installed."
 Write-Host "App: $installDir\MyVpnClient.exe"
 Write-Host "Data: $dataDir"
-
 
 
 

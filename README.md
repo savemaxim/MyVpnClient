@@ -1,6 +1,6 @@
 # MyVpnClient
 
-MyVpnClient is a small Windows VPN client for Fortinet/FortiGate SSL VPN setups where a lightweight tray app, saved profiles, logs, diagnostics, and an MSI installer are enough.
+MyVpnClient is a small VPN client for Fortinet/FortiGate SSL VPN setups where lightweight profiles, logs, diagnostics, and OpenConnect-backed tunnel startup are enough. The primary desktop app is Windows/WinForms; a Linux CLI wrapper is also available for headless hosts.
 
 By default MyVpnClient handles Fortinet login/MFA itself, receives the VPN cookie, and starts OpenConnect for the actual tunnel. The MSI bundles the OpenConnect for Windows runtime under `OpenConnect\`; source runs can use a system OpenConnect install or `openconnect.exe` on `PATH`. The experimental native `myvpn_tunnel` TLS/PPP/TAP engine is still included as a fallback/test path and can be enabled from Settings > Tunnel.
 
@@ -49,6 +49,19 @@ For source runs or local MSI builds:
 - OpenConnect for Windows installed, or `openconnect.exe` available on `PATH`
 - WiX Toolset 7 CLI and WiX UI/Util extensions when building an MSI locally
 - TAP/Wintun adapter support only when testing the native tunnel backend
+
+For Linux CLI use:
+
+- Python 3.10 or newer
+- OpenConnect
+- vpnc scripts
+- root privileges for tunnel creation and route installation
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt install python3 openconnect vpnc-scripts
+```
 
 ## Build From Source
 
@@ -120,6 +133,78 @@ The installer:
 
 Uninstall from Windows Apps & Features.
 
+## Linux CLI
+
+Install the CLI wrapper from a checkout:
+
+```bash
+sudo ./install-linux.sh
+```
+
+The installer copies runtime files to `/opt/myvpnclient` and creates:
+
+```text
+/usr/local/bin/myvpnclient
+```
+
+The Linux wrapper stores runtime config and state under:
+
+```text
+~/.config/myvpnclient/config.json
+~/.config/myvpnclient/state/
+```
+
+On first run it creates `config.json` from `config.linux.example.json`. Edit that file before connecting. Do not commit real Linux config, profiles, state, logs, VPN hostnames, usernames, passwords, certificate pins, cookies, assigned VPN IPs, or route dumps.
+
+Start a VPN connection in the background:
+
+```bash
+sudo myvpnclient connect
+```
+
+Keep the connection in the foreground instead:
+
+```bash
+sudo myvpnclient connect-watch
+```
+
+Check status:
+
+```bash
+myvpnclient status
+```
+
+The text status includes state, uptime, server, and VPN IP when available.
+
+Follow logs:
+
+```bash
+myvpnclient logs
+```
+
+`myvpnclient logs` prints the last 100 lines and follows new log output until `Ctrl+C`. For one-shot output:
+
+```bash
+myvpnclient logs --lines 200 --no-follow
+```
+
+Disconnect:
+
+```bash
+sudo myvpnclient disconnect
+```
+
+The Linux CLI uses OpenConnect by default. If `openconnectDpdSeconds` is `0`, MyVpnClient omits `--force-dpd`; OpenConnect or the VPN server may still emit PPP DPD echo messages. Set a positive value such as `300` to pass `--force-dpd=300` on the next connection.
+
+For subnet routing through a Linux host, enable IPv4 forwarding, advertise only routes you are allowed to route, and approve the routes in the Tailscale admin console when using Tailscale:
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo tailscale up --advertise-routes=10.0.0.0/8 --accept-routes --hostname=myvpn-linux
+```
+
+If another Tailscale node already advertises the same route, disable that route or choose which node should be primary in the Tailscale admin console.
+
 ## Local API
 
 The localhost API is disabled by default. Enable it from Settings.
@@ -135,14 +220,32 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:17873/connect?profile=Example%2
 Invoke-RestMethod -Method Post http://127.0.0.1:17873/disconnect
 ```
 
+On Linux, start the same local API with:
+
+```bash
+myvpnclient serve-api
+```
+
+or from a checkout:
+
+```bash
+./myvpnclient-linux serve-api
+```
+
 The API returns profile names/servers/protocols only. It does not return usernames or passwords. `/health` returns structured backend status; `/trace` returns the current trace and route-owner file path.
+
+The API has no authentication. Keep the default localhost bind unless access from trusted machines is required:
+
+```bash
+myvpnclient serve-api --bind 0.0.0.0 --port 17873
+```
 
 
 ## Notes
 
 MyVpnClient needs elevated rights on Windows to create/open adapters and install routes. The app manifest requests administrator rights at launch, and helper scheduled tasks are still installed for connect/disconnect/repair actions.
 
-The OpenConnect tunnel path is the recommended/default mode. MyVpnClient still owns Fortinet authentication, MFA push, trace logging, and lifecycle cleanup; OpenConnect owns the network tunnel transport. Runtime lookup prefers `OpenConnect\openconnect.exe` beside the installed app, then system OpenConnect locations, then `openconnect` on `PATH`. By default MyVpnClient lets OpenConnect choose or create the Windows Wintun adapter and then tracks the actual adapter name from OpenConnect/Windows. `openconnectInterfaceAlias` remains the preferred logical name (`MyVpnClient` by default); set `openconnectForceInterfaceAlias=true` only when that exact adapter is known to exist. Settings > Tunnel exposes OpenConnect DPD seconds (`--force-dpd`, default 20) and reconnect timeout seconds (`--reconnect-timeout`, default 60). Changing DPD affects the next connection only; 0 omits `--force-dpd`, but OpenConnect/server defaults may still emit PPP DPD echo requests. Longer values such as 600 are allowed but make dead tunnels take longer to be noticed.
+The OpenConnect tunnel path is the recommended/default mode. MyVpnClient still owns Fortinet authentication, MFA push, trace logging, and lifecycle cleanup; OpenConnect owns the network tunnel transport. Runtime lookup prefers `OpenConnect\openconnect.exe` beside the installed app, then system OpenConnect locations, then `openconnect` on `PATH`. By default MyVpnClient lets OpenConnect choose or create the Windows Wintun adapter and then tracks the actual adapter name from OpenConnect/Windows. `openconnectInterfaceAlias` remains the preferred logical name (`MyVpnClient` by default); set `openconnectForceInterfaceAlias=true` only when that exact adapter is known to exist. Settings > Tunnel exposes OpenConnect DPD seconds (`--force-dpd`, default 0) and reconnect timeout seconds (`--reconnect-timeout`, default 60). Changing DPD affects the next connection only; 0 omits `--force-dpd`, but OpenConnect/server defaults may still emit PPP DPD echo requests. Longer values such as 600 are allowed but make dead tunnels take longer to be noticed.
 
 The integrated `myvpn_tunnel` backend remains experimental. It can negotiate LCP/IPCP and read/write Wintun or TAP-Windows adapters, but it is slower and less mature than OpenConnect. The MSI no longer packages OpenSSL DLLs for the old native DTLS experiment.
 
