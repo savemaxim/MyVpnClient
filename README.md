@@ -81,17 +81,30 @@ dotnet run --project .\src\MyVpnClient\MyVpnClient.csproj
 
 Edit profiles from the app settings window before connecting.
 
-## Build MSI Locally
+## Build Packages Locally
 
 ```powershell
 .\build-local.ps1 -NoPause
 ```
 
-The local build publishes a self-contained win-x64 app, stages the MSI payload, copies the OpenConnect runtime from `C:\Program Files\OpenConnect` or an existing `C:\Program Files\MyVpnClient\OpenConnect`, and writes:
+The Windows local build publishes a self-contained win-x64 app, stages the MSI payload, copies the OpenConnect runtime from `C:\Program Files\OpenConnect` or an existing `C:\Program Files\MyVpnClient\OpenConnect`, and writes:
 
 ```text
 artifacts\MyVpnClient-<version>-win-x64.msi
 artifacts\MyVpnClient-<version>-win-x64.msi.sha256
+```
+
+Build the Linux CLI zip locally:
+
+```powershell
+.\build-linux.ps1 -NoPause
+```
+
+The Linux build writes:
+
+```text
+artifacts\MyVpnClient-<version>-linux-x64.zip
+artifacts\MyVpnClient-<version>-linux-x64.zip.sha256
 ```
 
 If WiX is not already available, install the tool and extensions first:
@@ -103,9 +116,9 @@ wix extension add --global WixToolset.UI.wixext/7.0.0
 wix extension add --global WixToolset.Util.wixext/7.0.0
 ```
 
-## GitHub Release MSI
+## GitHub Release Packages
 
-The GitHub workflow `.github/workflows/release-msi.yml` builds the release MSI on `windows-latest`. It installs OpenConnect with Chocolatey, installs WiX 7, stages the bundled OpenConnect runtime, builds an x64 MSI, uploads the MSI/checksum artifact, and creates a GitHub Release.
+The GitHub workflow `.github/workflows/release-msi.yml` builds release packages on `windows-latest`. It installs OpenConnect with Chocolatey, installs WiX 7, stages the bundled OpenConnect runtime, builds an x64 MSI, packages the Linux CLI zip, uploads checksums, and creates a GitHub Release.
 
 The workflow runs when you push a version tag like:
 
@@ -140,6 +153,30 @@ Install the CLI wrapper from a checkout:
 ```bash
 sudo ./install-linux.sh
 ```
+
+Install or update from the latest GitHub Release on Ubuntu. For a private repository, install and authenticate GitHub CLI first:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y gh unzip python3 openconnect vpnc-scripts
+gh auth login
+```
+
+Then fetch and run the installer through `gh`:
+
+```bash
+gh api repos/savemaxim/MyVpnClient/contents/install-linux.sh --jq .content | base64 -d > /tmp/install-myvpnclient.sh
+chmod +x /tmp/install-myvpnclient.sh
+/tmp/install-myvpnclient.sh --from-release
+```
+
+To install a specific version:
+
+```bash
+/tmp/install-myvpnclient.sh --from-release 1.0.141
+```
+
+The release installer downloads `MyVpnClient-<version>-linux-x64.zip`, copies it to `/opt/myvpnclient`, and installs `/usr/local/bin/myvpnclient`.
 
 The installer copies runtime files to `/opt/myvpnclient` and creates:
 

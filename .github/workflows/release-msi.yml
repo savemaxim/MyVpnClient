@@ -1,4 +1,4 @@
-name: Release MSI
+name: Release packages
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  build-msi:
+  build-packages:
     runs-on: windows-latest
 
     steps:
@@ -169,20 +169,35 @@ jobs:
             -o (Join-Path $distDir "MyVpnClient-$version-win-x64.msi")
           Pop-Location
 
-      - name: Create checksum
+      - name: Package Linux CLI
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $msi = "artifacts\dist\MyVpnClient-$version-win-x64.msi"
-          $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $msi
-          "$($hash.Hash)  $(Split-Path -Leaf $msi)" | Set-Content -Encoding ascii "artifacts\dist\MyVpnClient-$version-win-x64.msi.sha256"
+          $publishDir = Join-Path $PWD "artifacts\publish\MyVpnClient-linux-x64"
+          $distDir = Join-Path $PWD "artifacts\dist"
+          $zipPath = Join-Path $distDir "MyVpnClient-$version-linux-x64.zip"
+
+          New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
+          Copy-Item .\backend -Destination $publishDir -Recurse -Force
+          Copy-Item .\myvpnclient_bridge.py, .\config.example.json, .\config.linux.example.json, .\myvpnclient-linux, .\install-linux.sh -Destination $publishDir -Force
+          Copy-Item .\README.md, .\LICENSE, .\THIRD_PARTY_NOTICES.md -Destination $publishDir -Force
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -Force
+
+      - name: Create checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts\dist -File | Where-Object { $_.Extension -in ".msi", ".zip" } | ForEach-Object {
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
+            "$($hash.Hash)  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: MyVpnClient-${{ steps.version.outputs.version }}-win-x64
+          name: MyVpnClient-${{ steps.version.outputs.version }}-packages
           path: |
             artifacts/dist/*.msi
+            artifacts/dist/*.zip
             artifacts/dist/*.sha256
 
       - name: Create GitHub release
@@ -191,10 +206,14 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           body: |
-            MyVpnClient ${{ steps.version.outputs.version }} Windows x64 MSI release.
+            MyVpnClient ${{ steps.version.outputs.version }} release packages.
+
+            - Windows x64 MSI
+            - Linux x64 CLI zip
 
             Full Changelog: https://github.com/${{ github.repository }}/commits/v${{ steps.version.outputs.version }}
           files: |
             artifacts/dist/*.msi
+            artifacts/dist/*.zip
             artifacts/dist/*.sha256
 
