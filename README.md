@@ -194,16 +194,15 @@ Disconnect:
 sudo myvpnclient disconnect
 ```
 
-The Linux CLI uses OpenConnect by default. If `openconnectDpdSeconds` is `0`, MyVpnClient omits `--force-dpd`; OpenConnect or the VPN server may still emit PPP DPD echo messages. Set a positive value such as `300` to pass `--force-dpd=300` on the next connection.
+The Linux CLI uses OpenConnect by default. `openconnectDpdSeconds` defaults to `300`, which passes `--force-dpd=300` on the next connection. Set it to `0` to omit `--force-dpd`; OpenConnect or the VPN server may still emit PPP DPD echo messages.
 
-For subnet routing through a Linux host, enable IPv4 forwarding, advertise only routes you are allowed to route, and approve the routes in the Tailscale admin console when using Tailscale:
+For subnet routing through a Linux host, enable IPv4 forwarding and advertise only routes you are allowed to route:
 
 ```bash
 sudo sysctl -w net.ipv4.ip_forward=1
-sudo tailscale up --advertise-routes=10.0.0.0/8 --accept-routes --hostname=myvpn-linux
 ```
 
-If another Tailscale node already advertises the same route, disable that route or choose which node should be primary in the Tailscale admin console.
+If another node already advertises the same route, disable the duplicate route or choose which node should be primary in your routing controller.
 
 ## Local API
 
@@ -245,7 +244,7 @@ myvpnclient serve-api --bind 0.0.0.0 --port 17873
 
 MyVpnClient needs elevated rights on Windows to create/open adapters and install routes. The app manifest requests administrator rights at launch, and helper scheduled tasks are still installed for connect/disconnect/repair actions.
 
-The OpenConnect tunnel path is the recommended/default mode. MyVpnClient still owns Fortinet authentication, MFA push, trace logging, and lifecycle cleanup; OpenConnect owns the network tunnel transport. Runtime lookup prefers `OpenConnect\openconnect.exe` beside the installed app, then system OpenConnect locations, then `openconnect` on `PATH`. By default MyVpnClient lets OpenConnect choose or create the Windows Wintun adapter and then tracks the actual adapter name from OpenConnect/Windows. `openconnectInterfaceAlias` remains the preferred logical name (`MyVpnClient` by default); set `openconnectForceInterfaceAlias=true` only when that exact adapter is known to exist. Settings > Tunnel exposes OpenConnect DPD seconds (`--force-dpd`, default 0) and reconnect timeout seconds (`--reconnect-timeout`, default 60). Changing DPD affects the next connection only; 0 omits `--force-dpd`, but OpenConnect/server defaults may still emit PPP DPD echo requests. Longer values such as 600 are allowed but make dead tunnels take longer to be noticed.
+The OpenConnect tunnel path is the recommended/default mode. MyVpnClient still owns Fortinet authentication, MFA push, trace logging, and lifecycle cleanup; OpenConnect owns the network tunnel transport. Runtime lookup prefers `OpenConnect\openconnect.exe` beside the installed app, then system OpenConnect locations, then `openconnect` on `PATH`. By default MyVpnClient lets OpenConnect choose or create the Windows Wintun adapter and then tracks the actual adapter name from OpenConnect/Windows. `openconnectInterfaceAlias` remains the preferred logical name (`MyVpnClient` by default); set `openconnectForceInterfaceAlias=true` only when that exact adapter is known to exist. Settings > Tunnel exposes OpenConnect DPD seconds (`--force-dpd`, default 300) and reconnect timeout seconds (`--reconnect-timeout`, default 60). Changing DPD affects the next connection only; 0 omits `--force-dpd`, but OpenConnect/server defaults may still emit PPP DPD echo requests. Longer values such as 600 are allowed but make dead tunnels take longer to be noticed.
 
 The integrated `myvpn_tunnel` backend remains experimental. It can negotiate LCP/IPCP and read/write Wintun or TAP-Windows adapters, but it is slower and less mature than OpenConnect. The MSI no longer packages OpenSSL DLLs for the old native DTLS experiment.
 

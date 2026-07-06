@@ -6,7 +6,7 @@
   "openconnectPath": "openconnect",
   "openconnectScript": "",
   "openconnectNoDtls": true,
-  "openconnectDpdSeconds": 0,
+  "openconnectDpdSeconds": 300,
   "openconnectReconnectTimeoutSeconds": 60,
   "openconnectForceInterfaceAlias": false,
   "authRetryCount": 0,

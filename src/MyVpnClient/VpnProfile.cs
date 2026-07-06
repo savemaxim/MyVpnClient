@@ -96,7 +96,7 @@ internal sealed class VpnProfile
     public bool OpenconnectForceInterfaceAlias { get; set; }
 
     [JsonPropertyName("openconnectDpdSeconds")]
-    public int OpenconnectDpdSeconds { get; set; } = 0;
+    public int OpenconnectDpdSeconds { get; set; } = 300;
 
     [JsonPropertyName("openconnectReconnectTimeoutSeconds")]
     public int OpenconnectReconnectTimeoutSeconds { get; set; } = 60;

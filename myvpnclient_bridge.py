@@ -1806,7 +1806,7 @@ def run_openconnect_cookie_backend(
     no_dtls = config_bool(config, "openconnectNoDtls", True)
     if no_dtls:
         cmd.append("--no-dtls")
-    dpd_seconds = config_int(config, "openconnectDpdSeconds", 0)
+    dpd_seconds = config_int(config, "openconnectDpdSeconds", 300)
     if dpd_seconds > 0:
         cmd.append(f"--force-dpd={dpd_seconds}")
     reconnect_timeout = config_int(config, "openconnectReconnectTimeoutSeconds", 60)
