@@ -63,7 +63,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.140"
+MYVPNCLIENT_VERSION = "1.0.143"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -2425,6 +2425,18 @@ def reset_network(config_path: Path = DEFAULT_CONFIG) -> int:
     return 0
 
 
+def app_version_payload() -> dict:
+    return {"name": "MyVpnClient", "version": MYVPNCLIENT_VERSION}
+
+
+def version_text() -> str:
+    return f"MyVpnClient {MYVPNCLIENT_VERSION}"
+
+
+def print_version() -> int:
+    print(version_text())
+    return 0
+
 def status(config_path: Path = DEFAULT_CONFIG) -> int:
     try:
         config = load_config(config_path)
@@ -2433,7 +2445,7 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
     pid = read_pid()
     if pid and is_running(pid):
         if not MYVPN_STATE_FILE.exists():
-            print(f"myvpn_tunnel authenticating PID {pid}: waiting for Fortinet/MFA response.")
+            print(f"{version_text()} | myvpn_tunnel authenticating PID {pid}: waiting for Fortinet/MFA response.")
             return 0
         try:
             state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
@@ -2448,12 +2460,12 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
                 details.append(f"vpn ip {ipv4}")
             detail_text = f" ({', '.join(details)})" if details else ""
             print(
-                "myvpn_tunnel "
+                f"{version_text()} | myvpn_tunnel "
                 f"{state.get('status', 'running')} PID {pid}{uptime}{detail_text}: {state.get('note', '')}"
             )
             return 0
         except (OSError, json.JSONDecodeError):
-            print(f"myvpn_tunnel PID {pid} is running.")
+            print(f"{version_text()} | myvpn_tunnel PID {pid} is running.")
             return 0
     if MYVPN_STATE_FILE.exists():
         try:
@@ -2470,7 +2482,7 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
             if ipv4:
                 details.append(f"vpn ip {ipv4}")
             detail_text = f" ({', '.join(details)})" if details else ""
-            print(f"myvpn_tunnel {state_name}{uptime}{detail_text}: {note}")
+            print(f"{version_text()} | myvpn_tunnel {state_name}{uptime}{detail_text}: {note}")
             if state_name in {"auth-failed", "auth-timeout", "tunnel-open-failed"}:
                 return 1
             if state_name == "network-ready":
@@ -2480,7 +2492,7 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
     if pid:
         PID_FILE.unlink(missing_ok=True)
     MYVPN_STATE_FILE.unlink(missing_ok=True)
-    print("No tunnel process is active.")
+    print(f"{version_text()} | No tunnel process is active.")
     return 1
 
 
@@ -2489,6 +2501,8 @@ def status_payload(config_path: Path = DEFAULT_CONFIG) -> dict:
         config = load_config(config_path)
     except SystemExit as exc:
         return {
+            "version": MYVPNCLIENT_VERSION,
+            "app": app_version_payload(),
             "backend": BACKEND_MYVPN,
             "state": "disconnected",
             "detail": str(exc),
@@ -2500,6 +2514,8 @@ def status_payload(config_path: Path = DEFAULT_CONFIG) -> dict:
     pid = read_pid()
     pid_running = bool(pid and is_running(pid))
     payload = {
+        "version": MYVPNCLIENT_VERSION,
+        "app": app_version_payload(),
         "backend": backend,
         "state": "disconnected",
         "detail": "Not running.",
@@ -3357,6 +3373,7 @@ def main(argv: list[str]) -> int:
     sub.add_parser("reset-network")
     sub.add_parser("status")
     sub.add_parser("status-json")
+    sub.add_parser("version")
     sub.add_parser("health")
     sub.add_parser("health-json")
     sub.add_parser("preflight-json")
@@ -3386,6 +3403,8 @@ def main(argv: list[str]) -> int:
         return status(args.config)
     if args.command == "status-json":
         return status_json(args.config)
+    if args.command == "version":
+        return print_version()
     if args.command == "health":
         return health(args.config)
     if args.command == "health-json":
