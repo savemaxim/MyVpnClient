@@ -160,7 +160,7 @@ install_api_service() {
     ""|127.*|localhost|0.0.0.0|::|::1|"*")
       ;;
     *)
-      wait_for_bind_address="ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do ip addr show | grep -F \" $API_BIND/\" >/dev/null && exit 0; sleep 1; done; echo \"Timed out waiting for API bind address $API_BIND\" >&2; exit 1'"
+      wait_for_bind_address="ExecStartPre=/bin/sh -c 'i=0; while [ \$\$i -lt 60 ]; do ip addr show | grep -F \" $API_BIND/\" >/dev/null && exit 0; i=\$\$((i + 1)); sleep 1; done; echo \"Timed out waiting for API bind address $API_BIND\" >&2; exit 1'"
       ;;
   esac
 
