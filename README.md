@@ -172,14 +172,14 @@ sudo sh /tmp/update-myvpnclient.sh
 To install a specific version and preserve or create the API service:
 
 ```bash
-sudo sh /tmp/update-myvpnclient.sh 1.0.147 --install-api-service --api-bind auto --api-port 17873
+sudo sh /tmp/update-myvpnclient.sh 1.0.148 --install-api-service --api-bind auto --api-port 17873
 ```
 
 `--from-release` is also accepted as a compatibility alias:
 
 ```bash
 sudo sh /tmp/update-myvpnclient.sh --from-release
-sudo sh /tmp/update-myvpnclient.sh --from-release 1.0.147
+sudo sh /tmp/update-myvpnclient.sh --from-release 1.0.148
 ```
 
 The updater defaults to `savemaxim/MyVpnClient`, stores settings in `/etc/myvpnclient/update.env`, and later updates can stay:

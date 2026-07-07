@@ -369,6 +369,46 @@ class StatusPayloadTests(unittest.TestCase):
             )
             self.assertIn('"event": "session_ended"', trace_path.read_text(encoding="utf-8"))
 
+    def test_shutdown_signal_logs_connected_session_once(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path = root / "myvpn_tunnel.json"
+            log_path = root / "myvpn.log"
+            trace_path = root / "trace.jsonl"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "network-ready",
+                        "note": "VPN tunnel is up.",
+                        "time": "2026-01-01 00:00:00",
+                        "connectedAt": "2026-01-01 00:00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.ACTIVE_LOG_FILE", log_path),
+                patch("myvpnclient_bridge.CURRENT_TRACE_FILE", trace_path),
+                patch("myvpnclient_bridge.RUN_TRACE_FILE", None),
+            ):
+                log_connected_session_ended("shutdown signal SIGTERM")
+                log_connected_session_ended("openconnect exit")
+
+            log_text = log_path.read_text(encoding="utf-8")
+            self.assertEqual(log_text.count("VPN session ended;"), 1)
+            self.assertIn(
+                "VPN session ended; cause: system shutdown or process signal; trigger: shutdown signal SIGTERM; connected uptime was ",
+                log_text,
+            )
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["sessionEndReason"], "shutdown signal SIGTERM")
+            self.assertEqual(state["sessionEndCause"], "system shutdown or process signal")
+            trace_text = trace_path.read_text(encoding="utf-8")
+            self.assertIn('"event": "session_ended"', trace_text)
+            self.assertIn('"endedAt":', trace_text)
+
     def test_tunnel_lost_preserves_connected_at_for_backend_exit_uptime_log(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -63,7 +63,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.147"
+MYVPNCLIENT_VERSION = "1.0.148"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -288,10 +288,14 @@ SESSION_END_CAUSES = {
     "disconnect with no active PID": "local cleanup: no active VPN PID",
     "stale PID cleanup": "local cleanup: stale VPN PID",
     "openconnect exit": "OpenConnect/backend tunnel lost",
+    "myvpn_tunnel DTLS exit": "myvpn_tunnel DTLS tunnel ended",
+    "myvpn_tunnel TLS exit": "myvpn_tunnel TLS tunnel ended",
 }
 
 
 def session_end_cause(reason: str) -> str:
+    if reason.startswith("shutdown signal "):
+        return "system shutdown or process signal"
     return SESSION_END_CAUSES.get(reason, "other VPN session end")
 
 
@@ -303,6 +307,8 @@ def log_connected_session_ended(reason: str) -> None:
     status = str(state.get("status") or "")
     if status not in SESSION_END_CONNECTED_STATUSES:
         return
+    if state.get("sessionEndedAt"):
+        return
     connected_at_text = str(state.get("connectedAt") or "")
     if not connected_at_text and status == "network-ready":
         connected_at_text = str(state.get("time") or "")
@@ -311,6 +317,7 @@ def log_connected_session_ended(reason: str) -> None:
         return
     duration = datetime.now() - connected_at
     cause = session_end_cause(reason)
+    ended_at = now_text()
     note = str(state.get("note") or "").strip()
     suffix = f" Last state: {status}."
     if note:
@@ -319,6 +326,13 @@ def log_connected_session_ended(reason: str) -> None:
         f"VPN session ended; cause: {cause}; trigger: {reason}; "
         f"connected uptime was {format_duration(duration.total_seconds())}.{suffix}"
     )
+    state["sessionEndedAt"] = ended_at
+    state["sessionEndReason"] = reason
+    state["sessionEndCause"] = cause
+    try:
+        MYVPN_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except OSError as exc:
+        append_log(f"Unable to mark VPN session end in state file: {exc}")
     trace_event(
         "session_ended",
         reason=reason,
@@ -326,8 +340,28 @@ def log_connected_session_ended(reason: str) -> None:
         lastStatus=status,
         lastNote=note,
         connectedAt=connected_at.strftime("%Y-%m-%d %H:%M:%S"),
+        endedAt=ended_at,
         uptimeSeconds=max(0, int(duration.total_seconds())),
     )
+
+
+def install_connect_signal_handlers() -> None:
+    if threading.current_thread() is not threading.main_thread():
+        return
+
+    def handle_shutdown_signal(signum, _frame):
+        try:
+            signame = signal.Signals(signum).name
+        except ValueError:
+            signame = str(signum)
+        reason = f"shutdown signal {signame}"
+        append_log(f"MyVpnClient received {signame}; logging active VPN session before shutdown.")
+        trace_event("shutdown_signal", signal=signame)
+        log_connected_session_ended(reason)
+        raise SystemExit(128 + signum)
+
+    for shutdown_signal in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(shutdown_signal, handle_shutdown_signal)
 
 
 def trace_event(event: str, **fields) -> None:
@@ -1455,6 +1489,7 @@ def connect(config_path: Path, *, wait: bool = False) -> int:
         print("Use 'myvpnclient status' or 'myvpnclient logs --lines 80' to follow progress.")
         return 0
     config = load_config(config_path)
+    install_connect_signal_handlers()
     return connect_myvpn(config)
 
 
@@ -2269,6 +2304,7 @@ def connect_myvpn_once(config: dict) -> int:
                 if tap:
                     tap.close()
                 if dtls_started:
+                    log_connected_session_ended("myvpn_tunnel DTLS exit")
                     cleanup_windows_network_state(config, reason="myvpn_tunnel DTLS exit")
                 if dtls_transport:
                     dtls_transport.close()
@@ -2341,6 +2377,7 @@ def connect_myvpn_once(config: dict) -> int:
                     tap.close()
         finally:
             tunnel.close()
+            log_connected_session_ended("myvpn_tunnel TLS exit")
             cleanup_windows_network_state(config, reason="myvpn_tunnel TLS exit")
             PID_FILE.unlink(missing_ok=True)
             with network_check_lock:
@@ -2375,7 +2412,9 @@ def open_myvpn_packet_adapter(config: dict):
 
 def connect_interactive(config_path: Path) -> int:
     print("Interactive mode now uses integrated myvpn_tunnel.")
-    return connect_myvpn(load_config(config_path))
+    config = load_config(config_path)
+    install_connect_signal_handlers()
+    return connect_myvpn(config)
 
 
 def disconnect(config_path: Path = DEFAULT_CONFIG) -> int:
