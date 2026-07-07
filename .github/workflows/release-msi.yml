@@ -113,6 +113,15 @@ jobs:
             Where-Object { Test-Path (Join-Path $_ "openconnect.exe") } |
             Select-Object -First 1
           if (-not $openConnectSource) {
+            $openConnectSource = Get-ChildItem -LiteralPath "C:\ProgramData\chocolatey\lib" -Recurse -Filter "openconnect.exe" -ErrorAction SilentlyContinue |
+              ForEach-Object { $_.DirectoryName } |
+              Where-Object { Test-Path (Join-Path $_ "libopenconnect-5.dll") } |
+              Select-Object -First 1
+          }
+          if (-not $openConnectSource) {
+            Get-ChildItem -LiteralPath "C:\ProgramData\chocolatey\lib" -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match "openconnect" } |
+              Select-Object -First 40 -ExpandProperty FullName
             throw "OpenConnect runtime not found after Chocolatey install."
           }
 
