@@ -12,7 +12,8 @@ while [[ -L "$SOURCE" ]]; do
   fi
 done
 APP_DIR="$(cd -- "$(dirname -- "$SOURCE")" && pwd)"
-DATA_DIR="${MYVPNCLIENT_DATA_DIR:-${XDG_CONFIG_HOME:-"$HOME/.config"}/myvpnclient}"
+HOME_DIR="${HOME:-/root}"
+DATA_DIR="${MYVPNCLIENT_DATA_DIR:-${XDG_CONFIG_HOME:-"$HOME_DIR/.config"}/myvpnclient}"
 CONFIG_PATH="$DATA_DIR/config.json"
 
 mkdir -p "$DATA_DIR"

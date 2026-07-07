@@ -165,7 +165,7 @@ gh auth login
 Then fetch and run the installer through `gh`:
 
 ```bash
-gh api repos/savemaxim/MyVpnClient/contents/install-linux.sh --jq .content | base64 -d > /tmp/install-myvpnclient.sh
+gh api repos/OWNER/REPOSITORY/contents/install-linux.sh --jq .content | base64 -d > /tmp/install-myvpnclient.sh
 chmod +x /tmp/install-myvpnclient.sh
 /tmp/install-myvpnclient.sh --from-release
 ```
@@ -173,7 +173,7 @@ chmod +x /tmp/install-myvpnclient.sh
 To install a specific version:
 
 ```bash
-/tmp/install-myvpnclient.sh --from-release 1.0.143
+/tmp/install-myvpnclient.sh --from-release 1.0.144
 ```
 
 The release installer downloads `MyVpnClient-<version>-linux-x64.zip`, copies it to `/opt/myvpnclient`, and installs `/usr/local/bin/myvpnclient`.
@@ -281,6 +281,14 @@ The API has no authentication. Keep the default localhost bind unless access fro
 ```bash
 myvpnclient serve-api --bind 0.0.0.0 --port 17873
 ```
+
+On a trusted private network host, install and run the API as a systemd service bound only to the private interface address:
+
+```bash
+sudo ./install-linux.sh --install-api-service --api-bind <private-ip> --api-port 17873
+```
+
+The generated service is `myvpnclient-api.service`, sets `HOME=/root` for headless systemd launches, and restarts automatically.
 
 
 ## Notes
