@@ -179,8 +179,8 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
           Copy-Item .\backend -Destination $publishDir -Recurse -Force
-          Copy-Item .\myvpnclient_bridge.py, .\config.example.json, .\config.linux.example.json, .\myvpnclient-linux, .\install-linux.sh -Destination $publishDir -Force
-          foreach ($scriptName in @("myvpnclient-linux", "install-linux.sh")) {
+          Copy-Item .\myvpnclient_bridge.py, .\config.example.json, .\config.linux.example.json, .\myvpnclient-linux, .\install-linux.sh, .\update-linux.sh -Destination $publishDir -Force
+          foreach ($scriptName in @("myvpnclient-linux", "install-linux.sh", "update-linux.sh")) {
             $scriptPath = Join-Path $publishDir $scriptName
             $scriptText = [System.IO.File]::ReadAllText($scriptPath).Replace("`r`n", "`n").Replace("`r", "`n")
             [System.IO.File]::WriteAllText($scriptPath, $scriptText, [System.Text.UTF8Encoding]::new($false))

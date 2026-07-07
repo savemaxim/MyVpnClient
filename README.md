@@ -162,18 +162,24 @@ sudo apt-get install -y gh unzip python3 openconnect vpnc-scripts
 gh auth login
 ```
 
-Then fetch and run the installer through `gh`:
+Then fetch and run the updater through `gh`:
 
 ```bash
-gh api repos/OWNER/REPOSITORY/contents/install-linux.sh --jq .content | base64 -d > /tmp/install-myvpnclient.sh
-chmod +x /tmp/install-myvpnclient.sh
-/tmp/install-myvpnclient.sh --from-release
+gh api repos/OWNER/REPOSITORY/contents/update-linux.sh --jq .content | base64 -d > /tmp/update-myvpnclient.sh
+chmod +x /tmp/update-myvpnclient.sh
+sudo /tmp/update-myvpnclient.sh --repo OWNER/REPOSITORY --version latest
 ```
 
-To install a specific version:
+To install a specific version and preserve or create the API service:
 
 ```bash
-/tmp/install-myvpnclient.sh --from-release 1.0.145
+sudo /tmp/update-myvpnclient.sh --repo OWNER/REPOSITORY --version 1.0.145 --install-api-service --api-bind auto --api-port 17873
+```
+
+The updater stores defaults in `/etc/myvpnclient/update.env`, so later updates can be:
+
+```bash
+sudo /tmp/update-myvpnclient.sh
 ```
 
 The release installer downloads `MyVpnClient-<version>-linux-x64.zip`, copies it to `/opt/myvpnclient`, and installs `/usr/local/bin/myvpnclient`.
