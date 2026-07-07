@@ -63,7 +63,7 @@ HOSTS_BLOCK_BEGIN = "# MyVpnClient VPN host overrides begin"
 HOSTS_BLOCK_END = "# MyVpnClient VPN host overrides end"
 DEFAULT_VPN_DNS: list[str] = []
 BACKEND_MYVPN = BACKEND_NAME
-MYVPNCLIENT_VERSION = "1.0.144"
+MYVPNCLIENT_VERSION = "1.0.145"
 AUTH_SUCCESS_MARKERS = (
     "Session authentication will expire",
     "ESP session established",
@@ -2437,6 +2437,15 @@ def print_version() -> int:
     print(version_text())
     return 0
 
+def stale_connected_state_detail(pid: int | None, state: dict) -> str:
+    state_pid = state.get("pid")
+    if pid:
+        return f"Stale tunnel state: PID {pid} is not running."
+    if state_pid:
+        return f"Stale tunnel state: recorded PID {state_pid} is not running."
+    return "Stale tunnel state: no tunnel process is active."
+
+
 def status(config_path: Path = DEFAULT_CONFIG) -> int:
     try:
         config = load_config(config_path)
@@ -2471,6 +2480,10 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
         try:
             state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
             state_name = state.get("status", "stopped")
+            if state_name == "network-ready":
+                print(f"{version_text()} | {stale_connected_state_detail(pid, state)}")
+                MYVPN_STATE_FILE.unlink(missing_ok=True)
+                return 1
             note = state.get("note", "")
             connected_at = parse_state_timestamp(str(state.get("connectedAt") or ""))
             uptime = f" uptime {format_duration((datetime.now() - connected_at).total_seconds())}" if connected_at else ""
@@ -2485,8 +2498,6 @@ def status(config_path: Path = DEFAULT_CONFIG) -> int:
             print(f"{version_text()} | myvpn_tunnel {state_name}{uptime}{detail_text}: {note}")
             if state_name in {"auth-failed", "auth-timeout", "tunnel-open-failed"}:
                 return 1
-            if state_name == "network-ready":
-                return 0
         except (OSError, json.JSONDecodeError):
             pass
     if pid:
@@ -2527,17 +2538,23 @@ def status_payload(config_path: Path = DEFAULT_CONFIG) -> dict:
     if MYVPN_STATE_FILE.exists():
         try:
             state = json.loads(MYVPN_STATE_FILE.read_text(encoding="utf-8"))
+            state_name = str(state.get("status", "running") if pid_running else state.get("status", "stopped"))
+            if state_name == "network-ready" and not pid_running:
+                state_name = "disconnected"
+                detail = stale_connected_state_detail(pid, state)
+            else:
+                detail = state.get("note", "")
             payload.update(
                 {
-                    "state": state.get("status", "running") if pid_running else state.get("status", "stopped"),
-                    "detail": state.get("note", ""),
+                    "state": state_name,
+                    "detail": detail,
                     "ipv4": state.get("ipv4", ""),
                     "server": state.get("server", config.get("server", "")),
                     "stats": state.get("stats", {}),
                     "mfaStatus": state.get("mfaStatus", ""),
                     "connectedAt": (
                         state.get("connectedAt") or state.get("time", "")
-                        if state.get("status") == "network-ready"
+                        if state_name == "network-ready"
                         else ""
                     ),
                 }

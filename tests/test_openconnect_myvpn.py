@@ -36,6 +36,7 @@ from myvpnclient_bridge import (
     route_to_prefix,
     route_tracking_interface_alias,
     should_reconnect_after_exit,
+    status,
     status_payload,
     write_myvpn_state,
 )
@@ -281,6 +282,60 @@ class StatusPayloadTests(unittest.TestCase):
             ):
                 payload = status_payload(config_path)
             self.assertEqual(payload["connectedAt"], "2026-06-26 20:39:59")
+
+    def test_stale_network_ready_state_is_not_reported_connected(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "config.json"
+            pid_path = root / "openconnect.pid"
+            state_path = root / "myvpn_tunnel.json"
+            config_path.write_text('{"server":"vpn.example.com","backend":"myvpn_tunnel"}', encoding="utf-8")
+            pid_path.write_text("1234", encoding="utf-8")
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "network-ready",
+                        "note": "VPN tunnel is up.",
+                        "time": "2026-06-26 20:39:59",
+                        "connectedAt": "2026-06-26 20:39:58",
+                        "pid": 1234,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.PID_FILE", pid_path),
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.is_running", return_value=False),
+            ):
+                payload = status_payload(config_path)
+
+            self.assertFalse(payload["connected"])
+            self.assertEqual(payload["state"], "disconnected")
+            self.assertEqual(payload["connectedAt"], "")
+            self.assertIn("Stale tunnel state", payload["detail"])
+
+    def test_status_cleans_stale_network_ready_state(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "config.json"
+            pid_path = root / "openconnect.pid"
+            state_path = root / "myvpn_tunnel.json"
+            config_path.write_text('{"server":"vpn.example.com","backend":"myvpn_tunnel"}', encoding="utf-8")
+            state_path.write_text(
+                json.dumps({"status": "network-ready", "note": "VPN tunnel is up.", "pid": 1234}),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("myvpnclient_bridge.PID_FILE", pid_path),
+                patch("myvpnclient_bridge.MYVPN_STATE_FILE", state_path),
+                patch("myvpnclient_bridge.is_running", return_value=False),
+            ):
+                self.assertEqual(status(config_path), 1)
+
+            self.assertFalse(state_path.exists())
 
     def test_backend_exit_logs_connected_session_uptime(self):
         with TemporaryDirectory() as tmp:

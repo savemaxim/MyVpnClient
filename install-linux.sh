@@ -155,17 +155,27 @@ install_api_service() {
   fi
   need systemctl
 
+  wait_for_bind_address=""
+  case "$API_BIND" in
+    ""|127.*|localhost|0.0.0.0|::|::1|"*")
+      ;;
+    *)
+      wait_for_bind_address="ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do ip addr show | grep -F \" $API_BIND/\" >/dev/null && exit 0; sleep 1; done; echo \"Timed out waiting for API bind address $API_BIND\" >&2; exit 1'"
+      ;;
+  esac
+
   unit_tmp="$(mktemp)"
   cat > "$unit_tmp" <<SERVICE
 [Unit]
 Description=MyVpnClient API for App Control
-After=network-online.target
+After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 Environment=HOME=/root
 Environment=USER=root
+$wait_for_bind_address
 ExecStart=$BIN_PATH serve-api --bind $API_BIND --port $API_PORT
 Restart=always
 RestartSec=5
