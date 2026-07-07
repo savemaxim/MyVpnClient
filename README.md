@@ -165,21 +165,27 @@ gh auth login
 Then fetch and run the updater through `gh`:
 
 ```bash
-gh api repos/OWNER/REPOSITORY/contents/update-linux.sh --jq .content | base64 -d > /tmp/update-myvpnclient.sh
-chmod +x /tmp/update-myvpnclient.sh
-sudo /tmp/update-myvpnclient.sh --repo OWNER/REPOSITORY --version latest
+gh api repos/savemaxim/MyVpnClient/contents/update-linux.sh --jq .content | base64 -d > /tmp/update-myvpnclient.sh
+sudo sh /tmp/update-myvpnclient.sh
 ```
 
 To install a specific version and preserve or create the API service:
 
 ```bash
-sudo /tmp/update-myvpnclient.sh --repo OWNER/REPOSITORY --version 1.0.145 --install-api-service --api-bind auto --api-port 17873
+sudo sh /tmp/update-myvpnclient.sh 1.0.145 --install-api-service --api-bind auto --api-port 17873
 ```
 
-The updater stores defaults in `/etc/myvpnclient/update.env`, so later updates can be:
+`--from-release` is also accepted as a compatibility alias:
 
 ```bash
-sudo /tmp/update-myvpnclient.sh
+sudo sh /tmp/update-myvpnclient.sh --from-release
+sudo sh /tmp/update-myvpnclient.sh --from-release 1.0.145
+```
+
+The updater defaults to `savemaxim/MyVpnClient`, stores settings in `/etc/myvpnclient/update.env`, and later updates can stay:
+
+```bash
+sudo sh /tmp/update-myvpnclient.sh
 ```
 
 The release installer downloads `MyVpnClient-<version>-linux-x64.zip`, copies it to `/opt/myvpnclient`, and installs `/usr/local/bin/myvpnclient`.
